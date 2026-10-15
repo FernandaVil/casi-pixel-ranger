@@ -805,6 +805,7 @@ const G = {
   fiesta: false,      // fase 4: easter egg "Fiesta Planetaria" (cantaron las 20 flores)
   fiestaNext: 0,      // fase 4: momento del próximo fuego automático de la fiesta
   fiestaOpen: false,  // fase 4: cartel "¡Fiesta interplanetaria!" abierto
+  beaconHint: false,  // fase 4: ya se dio la pista para encontrar la nave dormida
   banner: null,       // cartel grande centrado temporal {text, t0, dur}
   nextFlower: 0,      // fase 4: color/nota de la próxima flor a sembrar (orden Do-Re-Mi-Fa-Sol)
   fireworks: [],      // fase 4: proyectiles de fuegos artificiales en vuelo
@@ -942,6 +943,9 @@ function releasePointer(e) {
   }
 }
 window.addEventListener('pointerup', releasePointer);
+// Desbloqueo del audio en celulares: iOS/Android solo permiten arrancar el
+// AudioContext en eventos de "gesto" (soltar el dedo / click), no en pointerdown.
+['pointerup', 'touchend', 'click'].forEach(type => window.addEventListener(type, initAudio, { passive: true }));
 window.addEventListener('pointercancel', releasePointer);
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 document.addEventListener('gesturestart', e => e.preventDefault());
@@ -1910,7 +1914,8 @@ function terminalRows(fs, fsS) {
       ];
     }
     const tip = !EPI.gift.opened ? 'Algo brilla en el centro del mapa...'
-      : !EPI.sleeper.read ? 'Tu tripulación crece... pero el planeta todavía guarda secretos.'   // sin delatar la baliza
+      : !EPI.sleeper.read
+        ? (G.beaconHint ? BEACON_HINT : 'Tu tripulación crece... pero el planeta todavía guarda secretos.')   // sin delatar la baliza
       : 'Toca la baliza otra vez si quieres releer el mensaje.';
     return [head('PLANETA JVC-028'), line(tip, PAL.yellow)];
   }
@@ -2535,6 +2540,10 @@ function drawBanner() {
   ctx.restore();
 }
 
+// Pista para encontrar la nave en hibernación (está arriba a la derecha del mapa)
+const BEACON_HINT_DELAY = 90;   // segundos después de abrir la caja
+const BEACON_HINT = 'Se escucha un zumbido de hibernación hacia el noreste del planeta...';
+
 /* --- Update del epílogo ------------------------------------------------ */
 function updateEpilogue(dt) {
   if (!G.paused) {
@@ -2553,6 +2562,16 @@ function updateEpilogue(dt) {
     updateFireworks(dt);
   }
   updateCat(dt);
+
+  // Pista de rescate (sin flecha): si pasan BEACON_HINT_DELAY s desde que se abrió la
+  // caja y la nave dormida sigue sin encontrarse, suena un zumbido y el Asistente orienta.
+  if (EPI.gift.opened && !EPI.sleeper.read && !G.beaconHint && G.time - EPI.gift.openT > BEACON_HINT_DELAY) {
+    G.beaconHint = true;
+    beep(70, 1.4, 'sine', 0.09, 55);            // zumbido grave de hibernación
+    beep(140, 1.2, 'triangle', 0.025, 110, 0.1);
+    toast(BEACON_HINT, PAL.ice, 5);
+    if (!ASST.introClosed) { ASST.introClosed = true; }   // si las instrucciones seguían fijas, la pista toma su lugar
+  }
 
   // Zzz de la nave en hibernación (hasta que se lee la baliza)
   if (!EPI.sleeper.read && Math.random() < 0.02) {
