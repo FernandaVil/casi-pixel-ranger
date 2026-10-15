@@ -1,0 +1,3206 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#07050d">
+<title>Varado en Kepler-7</title>
+<style>
+  /* El canvas ocupa toda la pantalla; desactivamos gestos del navegador
+     (scroll, zoom, selección) para que el juego reciba todos los toques. */
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #07050d;
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+  canvas {
+    display: block;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    outline: none;
+  }
+
+  /* ---- Carta del regalo (Fase 4): capa DOM sobre el canvas ---- */
+  #carta-regalo {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    box-sizing: border-box;
+    background: rgba(7, 5, 13, 0.55);
+    touch-action: manipulation;
+  }
+  #carta-regalo.abierta {
+    display: flex;
+    animation: carta-fondo 0.4s ease-out;
+  }
+  .carta-marco {
+    position: relative;
+    width: 100%;
+    max-width: 520px;
+    max-height: 100%;
+    overflow-y: auto;
+    touch-action: pan-y;
+    box-sizing: border-box;
+    padding: 22px 22px 20px;
+    background: linear-gradient(160deg, rgba(40, 20, 80, 0.93), rgba(14, 8, 32, 0.95));
+    border: 3px solid #3ef0ff;
+    outline: 3px solid #ff3ea5;
+    outline-offset: 4px;
+    box-shadow: 0 0 26px rgba(62, 240, 255, 0.55), 0 0 52px rgba(255, 62, 165, 0.35), inset 0 0 30px rgba(62, 240, 255, 0.12);
+    color: #f2e6d0;
+    font-family: "Courier New", Courier, monospace;
+    font-weight: bold;
+    font-size: 16px;
+    line-height: 1.45;
+    animation: carta-entrada 0.5s cubic-bezier(0.2, 1.4, 0.4, 1);
+  }
+  /* líneas de barrido CRT sobre la carta */
+  .carta-marco::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.12) 0 1px, transparent 1px 3px);
+  }
+  .carta-cabecera {
+    margin: -8px -8px 14px;
+    padding: 4px 8px;
+    background: #3ef0ff;
+    color: #07050d;
+    font-size: 12px;
+    letter-spacing: 1px;
+  }
+  .carta-marco h2 {
+    margin: 0 0 12px;
+    color: #ff3ea5;
+    font-size: 20px;
+    line-height: 1.3;
+    text-shadow: 0 0 8px rgba(255, 62, 165, 0.7);
+  }
+  .carta-marco p { margin: 0 0 10px; }
+  .carta-marco .carta-destacado { color: #ffd23e; }
+  .carta-botones {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 18px;
+  }
+  #btn-canjear {
+    display: block;
+    padding: 14px 16px;
+    text-align: center;
+    text-decoration: none;
+    font: inherit;
+    font-size: 18px;
+    color: #07050d;
+    background: #7dff6a;
+    border: 3px solid #07050d;
+    box-shadow: 0 0 0 3px #7dff6a, 0 0 22px rgba(125, 255, 106, 0.75);
+    animation: latido 1.2s ease-in-out infinite;
+  }
+  #btn-canjear:hover, #btn-canjear:focus-visible { background: #b6ff9e; }
+  #btn-cerrar {
+    padding: 10px;
+    font: inherit;
+    font-size: 14px;
+    color: #3ef0ff;
+    background: transparent;
+    border: 2px solid #3ef0ff;
+    cursor: pointer;
+  }
+  #btn-cerrar:hover, #btn-cerrar:focus-visible { background: rgba(62, 240, 255, 0.15); }
+  /* ---- Botones de siembra (Fase 4): UI HTML sobre el canvas ---- */
+  #hud-siembra {
+    position: absolute;
+    left: calc(14px + env(safe-area-inset-left, 0px));
+    bottom: 14px;
+    z-index: 5;                 /* sobre el canvas, debajo de la carta (10) */
+    display: none;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    pointer-events: none;       /* solo los botones capturan toques */
+  }
+  #hud-siembra.visible { display: flex; }
+  .btn-siembra {
+    --neon: #3ee8d0;
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    min-width: 196px;
+    min-height: 44px;           /* tamaño cómodo para el dedo */
+    padding: 8px 12px 8px 8px;
+    box-sizing: border-box;
+    font-family: "Courier New", Courier, monospace;
+    font-weight: bold;
+    font-size: 14px;
+    letter-spacing: 0.5px;
+    text-align: left;
+    color: var(--neon);
+    text-shadow: 0 0 6px var(--neon);
+    background:
+      repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.18) 0 1px, transparent 1px 3px),
+      rgba(12, 7, 22, 0.84);
+    border: 2px solid var(--neon);
+    border-radius: 0;
+    box-shadow: 0 0 0 2px #120b18, 0 0 12px var(--neon), inset 0 0 10px rgba(0, 0, 0, 0.6);
+    cursor: pointer;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn-siembra .tecla {
+    display: inline-block;
+    margin-right: 8px;
+    padding: 2px 5px;
+    color: #07050d;
+    background: var(--neon);
+    text-shadow: none;
+  }
+  /* muestra del color de la próxima flor (sin nombre de nota) */
+  .btn-siembra .nota {
+    width: 10px;
+    height: 10px;
+    margin-left: auto;
+    background: var(--neon);
+    box-shadow: 0 0 0 2px #120b18;
+  }
+  .btn-siembra:hover { background: rgba(40, 24, 70, 0.9); }
+  .btn-siembra:focus-visible { outline: 2px dashed var(--neon); outline-offset: 3px; }
+  .btn-siembra.pulsado { animation: btn-pulso 0.28s steps(3, end); }
+  @keyframes btn-pulso {
+    from { background: var(--neon); color: #07050d; text-shadow: none; transform: translateY(2px); }
+    to   { background: rgba(12, 7, 22, 0.84); transform: none; }
+  }
+  /* En PC son sobre todo un recordatorio de las teclas: algo más discretos */
+  @media (hover: hover) and (pointer: fine) {
+    .btn-siembra { opacity: 0.88; font-size: 13px; min-height: 38px; }
+    .btn-siembra:hover { opacity: 1; }
+  }
+
+  /* ---- Cartel de la Fiesta interplanetaria ---- */
+  #cartel-fiesta {
+    position: fixed;
+    inset: 0;
+    z-index: 12;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    box-sizing: border-box;
+    background: radial-gradient(circle at 50% 45%, rgba(255, 62, 165, 0.18), rgba(7, 5, 13, 0.35) 70%);
+    touch-action: manipulation;
+  }
+  #cartel-fiesta.abierto { display: flex; animation: carta-fondo 0.3s ease-out; }
+  .fiesta-marco {
+    position: relative;
+    width: 100%;
+    max-width: 480px;
+    max-height: 100%;
+    overflow-y: auto;
+    box-sizing: border-box;
+    padding: 20px 20px 18px;
+    text-align: center;
+    font-family: "Courier New", Courier, monospace;
+    font-weight: bold;
+    color: #f2e6d0;
+    /* confeti de píxeles en el fondo */
+    background:
+      radial-gradient(circle, #ffd23e 0 2px, transparent 2.5px) 0 0 / 34px 34px,
+      radial-gradient(circle, #3ef0ff 0 2px, transparent 2.5px) 17px 11px / 34px 34px,
+      radial-gradient(circle, #ff3ea5 0 2px, transparent 2.5px) 8px 23px / 34px 34px,
+      linear-gradient(160deg, rgba(60, 20, 90, 0.95), rgba(20, 8, 40, 0.96));
+    border: 4px solid transparent;
+    border-image: linear-gradient(90deg, #ff3ea5, #ffd23e, #7dff6a, #3ef0ff, #8a3eff, #ff3ea5) 1;
+    box-shadow: 0 0 30px rgba(255, 62, 165, 0.6), 0 0 60px rgba(62, 240, 255, 0.35);
+    animation: carta-entrada 0.55s cubic-bezier(0.2, 1.5, 0.4, 1);
+  }
+  #pastel-canvas {
+    display: block;
+    width: 144px;
+    height: 128px;
+    margin: 0 auto 10px;
+    image-rendering: pixelated;
+    animation: latido 0.9s ease-in-out infinite;
+  }
+  #fiesta-titulo {
+    margin: 0 0 16px;
+    font-size: clamp(24px, 7vw, 34px);
+    line-height: 1.2;
+    color: #ffd23e;   /* respaldo si no hay background-clip */
+    background: linear-gradient(90deg, #ff3ea5, #ffd23e, #7dff6a, #3ef0ff, #ff3ea5);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(3px 3px 0 #120b18);
+    animation: arcoiris 2.5s linear infinite;
+  }
+  #fiesta-titulo span { display: block; }
+  #btn-cerrar-fiesta {
+    padding: 12px 28px;
+    font: inherit;
+    font-size: 16px;
+    color: #07050d;
+    background: #ffd23e;
+    border: 3px solid #07050d;
+    box-shadow: 0 0 0 3px #ffd23e, 0 0 18px rgba(255, 210, 62, 0.7);
+    cursor: pointer;
+  }
+  #btn-cerrar-fiesta:hover, #btn-cerrar-fiesta:focus-visible { background: #fff07a; }
+  @keyframes arcoiris { from { background-position: 0% 0; } to { background-position: 200% 0; } }
+
+  /* ---- [X] Cerrar del panel fijado del Asistente ---- */
+  .btn-cerrar-bitacora {
+    position: absolute;
+    z-index: 6;
+    display: none;
+    height: 30px;
+    padding: 0 12px;
+    white-space: nowrap;
+    transform: translate(-100%, -100%);   /* se ancla por su esquina inferior derecha */
+    font-family: "Courier New", Courier, monospace;
+    font-weight: bold;
+    font-size: 13px;
+    color: #07050d;
+    background: #3ef0ff;
+    border: 2px solid #07050d;
+    border-radius: 0;
+    box-shadow: 0 0 0 2px #3ef0ff, 0 0 12px rgba(62, 240, 255, 0.6);
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn-cerrar-bitacora.visible { display: block; }
+  .btn-cerrar-bitacora:hover { background: #a8fbff; }
+
+  /* ---- Botón flotante de la bitácora (Asistente plegado) ---- */
+  .btn-bitacora {
+    --neon: #3ef0ff;
+    position: absolute;
+    z-index: 6;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    color: var(--neon);
+    background:
+      repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.18) 0 1px, transparent 1px 3px),
+      rgba(12, 7, 22, 0.86);
+    border: 2px solid var(--neon);
+    border-radius: 0;
+    box-shadow: 0 0 0 2px #120b18, 0 0 12px var(--neon);
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn-bitacora.visible { display: flex; animation: bitacora-in 0.25s steps(3, end); }
+  .btn-bitacora:hover { background: rgba(40, 24, 70, 0.92); }
+  .btn-bitacora svg { image-rendering: pixelated; }
+  @keyframes bitacora-in { from { transform: scale(0.6); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  @keyframes latido { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.04); } }
+  @keyframes carta-entrada { from { transform: scale(0.85); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes carta-fondo { from { opacity: 0; } to { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    #carta-regalo.abierta, .carta-marco, #btn-canjear, .btn-siembra.pulsado, .btn-bitacora.visible,
+    #cartel-fiesta.abierto, .fiesta-marco, #pastel-canvas, #fiesta-titulo { animation: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="game" tabindex="0"></canvas>
+
+<!-- UI de siembra (Fase 4): recordatorio de teclas en PC, botones reales en el celular -->
+<div id="hud-siembra" aria-label="Siembra">
+  <button id="btn-arbol" class="btn-siembra" type="button" tabindex="-1"><span class="tecla">[E]</span>- Sembrar Árbol</button>
+  <button id="btn-flor" class="btn-siembra" type="button" tabindex="-1"><span class="tecla">[F]</span>- Sembrar Flor<span class="nota" id="flor-nota" aria-hidden="true"></span></button>
+</div>
+
+<!-- Cartel de la Fiesta interplanetaria (las 20 flores cantaron) -->
+<div id="cartel-fiesta" role="dialog" aria-modal="true" aria-labelledby="fiesta-titulo">
+  <div class="fiesta-marco">
+    <canvas id="pastel-canvas" width="144" height="128" aria-label="Pastel de cumpleaños pixelado"></canvas>
+    <h2 id="fiesta-titulo"><span>¡Fiesta interplanetaria!</span> <span>Feliz cumpleaños</span></h2>
+    <button id="btn-cerrar-fiesta" type="button">Cerrar</button>
+  </div>
+</div>
+
+<!-- [X] Cerrar: dentro del panel fijado del Asistente (instrucciones de la fase 4) -->
+<button id="btn-cerrar-bitacora" class="btn-cerrar-bitacora" type="button" tabindex="-1" aria-label="Cerrar instrucciones">[X] Cerrar</button>
+
+<!-- Bitácora: el panel del Asistente plegado en un botón flotante (ícono de cuaderno pixelado) -->
+<button id="btn-bitacora" class="btn-bitacora" type="button" tabindex="-1" aria-label="Abrir bitácora del Asistente de Navegación" title="Bitácora">
+  <svg viewBox="0 0 16 16" width="26" height="26" shape-rendering="crispEdges" aria-hidden="true">
+    <rect x="4" y="1" width="11" height="14" fill="currentColor"/>
+    <rect x="6" y="3" width="7" height="10" fill="#120b18"/>
+    <rect x="7" y="5" width="5" height="1" fill="currentColor"/>
+    <rect x="7" y="7" width="5" height="1" fill="currentColor"/>
+    <rect x="7" y="9" width="3" height="1" fill="currentColor"/>
+    <rect x="2" y="3" width="3" height="1" fill="#ffd23e"/>
+    <rect x="2" y="6" width="3" height="1" fill="#ffd23e"/>
+    <rect x="2" y="9" width="3" height="1" fill="#ffd23e"/>
+    <rect x="2" y="12" width="3" height="1" fill="#ffd23e"/>
+  </svg>
+</button>
+
+<!-- Carta del regalo: se muestra al tocar la baliza de la nave en hibernación (Planeta JVC-028) -->
+<div id="carta-regalo" role="dialog" aria-modal="true" aria-labelledby="carta-titulo">
+  <div class="carta-marco">
+    <div class="carta-cabecera">BALIZA DE HIBERNACIÓN · SEÑAL ENTRANTE</div>
+    <h2 id="carta-titulo">¡Planeta JVC-028 asegurado! Pero el espacio es muy grande para un solo vaquero.</h2>
+    <p>Misión principal detectada: Examen de Admisión en 2 meses.</p>
+    <p>Tienes una copiloto en estado de hibernación lista para unirse a tu escuadrón.</p>
+    <p class="carta-destacado">Canjea tu autorización para sumar a Queenofwreck a la tripulación.</p>
+    <div class="carta-botones">
+      <!-- WhatsApp de destino: +54 11 3106-0467 (en wa.me va sin "+" ni espacios) -->
+      <a id="btn-canjear" href="https://wa.me/541131060467?text=Aterric%C3%A9%20en%20el%20planeta.%20Necesito%20ayuda%20para%20explorar%20el%20espacio%20%F0%9F%91%BE" target="_blank" rel="noopener">Despertar copiloto</a>
+      <button id="btn-cerrar" type="button">Cerrar carta</button>
+    </div>
+  </div>
+</div>
+<script>
+"use strict";
+
+/* =====================================================================
+   VARADO EN KEPLER-7
+   Minijuego top-down "space western" de 8 bits.
+   - Sin librerías, sin imágenes, sin audio externo.
+   - Todo el pixel art se define como matrices de caracteres (arrays 2D)
+     y se pinta con ctx.fillRect.
+   - Bucle principal: update(dt) -> draw() con requestAnimationFrame.
+   ===================================================================== */
+
+/* ---------------------------------------------------------------------
+   1. CONFIGURACIÓN GENERAL
+   --------------------------------------------------------------------- */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+const WORLD_W = 720;            // Tamaño del mundo en "píxeles de arte"
+const WORLD_H = 540;
+const SHIP_X = 360;             // La nave estrellada está en el centro del mapa
+const SHIP_Y = 280;             // (coordenada de su base)
+const PLAYER_SPEED = 80;        // Píxeles de arte por segundo
+const FONT = '"Courier New", Courier, monospace';
+
+// Fase 1 (logística): lo que pide la nave y lo que aguanta la mochila.
+// El refrigerante es casi agua: 1 ml pesa 1 g, así que todo se suma junto.
+const FUEL_NEEDED_G = 2500;       // 2,5 kg de combustible
+const COOLANT_NEEDED_ML = 1500;   // 1,5 L de refrigerante
+const BACKPACK_MAX_G = 1000;      // 1 kg (o 1 L) por viaje
+
+// Fase 2 (pH lineal): cada mineral alcalino suma +1,25 de pH.
+const PH_START = 2;
+const PH_TARGET = 7;
+const PH_PER_MINERAL = 1.25;
+
+// Fase 3 (física): margen alrededor del ángulo óptimo (el jugador lo descubre)
+const ANGLE_TOLERANCE = 3;
+const SIM_FLIGHT = 1.2;   // duración del vuelo holográfico (s)
+const SIM_HOLD = 1.0;     // tiempo que se muestra el resultado (s)
+
+/* ---------------------------------------------------------------------
+   2. PALETA "SPACE WESTERN": noche violeta, óxido y neón
+   --------------------------------------------------------------------- */
+const PAL = {
+  outline: '#120b18', night: '#07050d',
+  ground: '#25172b', ground2: '#2d1b31', ground3: '#1c1121', ground4: '#33203a',
+  dune: '#3a2129', dune2: '#4a2a2c', crack: '#160d1a',
+  rust: '#c4572a', rustDark: '#7f3418', rustLight: '#e07a3c',
+  metal: '#8c8fa3', metalDark: '#4b4d63', metalLight: '#c3c6d6',
+  cyan: '#3ef0ff', cyanDark: '#167a8a',
+  magenta: '#ff3ea5', magentaDark: '#8a1f5a',
+  yellow: '#ffd23e', yellowDark: '#b8862a',
+  green: '#7dff6a', greenDark: '#2f8f3a', greenLight: '#d8ffcc',
+  ice: '#8fd0ff', iceDark: '#2f5f9a',
+  coolant: '#3e9cff', coolantDark: '#1f4a9a',   // refrigerante: siempre azul
+  skin: '#e0a070', hat: '#5a2e1a', leather: '#2b1b12', denim: '#3b3a5a',
+  bone: '#d8cbb8', rock: '#5b4560', rockDark: '#3d2c44', teal: '#2f8f6a',
+  scorch: '#1a1014', text: '#f2e6d0', red: '#ff4a4a',
+  flameW: '#fff6d0', flameY: '#ffd23e', flameO: '#ff9a3e', flameR: '#ff5a2e'
+};
+
+/* ---------------------------------------------------------------------
+   3. SPRITES COMO MATRICES
+   Cada sprite es un array de strings (filas). Cada carácter es un píxel:
+   '.' = transparente; cualquier otra letra se traduce con su "map" de color.
+   Las filas se rellenan automáticamente para que todas tengan igual ancho.
+   --------------------------------------------------------------------- */
+function makeSprite(rows, map) {
+  const w = Math.max(...rows.map(r => r.length));
+  return { w, h: rows.length, rows: rows.map(r => r.padEnd(w, '.')), map };
+}
+
+const SPR = {};
+
+// Vaquero espacial: sombrero con banda de neón, visor cian, poncho de óxido.
+const COWBOY_MAP = {
+  O: PAL.outline, H: PAL.hat, h: PAL.cyan, S: PAL.skin, V: PAL.cyan,
+  P: PAL.rust, p: PAL.rustDark, B: PAL.leather, Y: PAL.yellow,
+  G: PAL.metal, L: PAL.denim, K: PAL.leather
+};
+const COWBOY_TOP = [
+  '....OOOO....',
+  '...OHHHHO...',
+  '..OHHHHHHO..',
+  'OOHhhhhhhHOO',
+  'OHHHHHHHHHHO',
+  '.OOSSSSSSOO.',
+  '..OSVVVVSO..',
+  '..OSSSSSSO..',
+  '.OPPPPPPPPO.',
+  'OPPpPPPPpPPO',
+  'OSPPpPPpPPSO',
+  '.OBBBYYBBGO.',
+  '..OLLOOLLO..'
+];
+// Fotograma A: de pie / Fotograma B: zancada
+SPR.cowboyA = makeSprite([...COWBOY_TOP,
+  '..OLLOOLLO..',
+  '..OKKOOKKO..',
+  '.OKKKOOKKKO.'
+], COWBOY_MAP);
+SPR.cowboyB = makeSprite([...COWBOY_TOP,
+  '.OLLO..OLLO.',
+  '.OKKO..OKKO.',
+  'OKKKO..OKKKO'
+], COWBOY_MAP);
+
+// Nave: cohete retro oxidado, con quemaduras (X) y ojo de buey cian.
+SPR.ship = makeSprite([
+  '........OO........',
+  '.......OMMO.......',
+  '......OMMMmO......',
+  '......OMMMmO......',
+  '.....ORRRRRrO.....',
+  '.....ORRRRRrO.....',
+  '....OMMMMMMMmO....',
+  '....OMMOOOOMmO....',
+  '....OMOWWWwOmO....',
+  '....OMOWWwwOmO....',
+  '....OMOWwwwOmO....',
+  '....OMMOOOOMmO....',
+  '....OMMMMMMMmO....',
+  '....OYYYYYYYyO....',
+  '....OMMXMMMMmO....',
+  '....OMMMMXXMmO....',
+  '....ORRRRRRRrO....',
+  '....ORRrRRXRrO....',
+  '....OMMMMMMMmO....',
+  '...OOMMMMMMMmOO...',
+  '..OROMMMMMMMmORO..',
+  '.ORROMMMMMMMmORRO.',
+  'ORRROmmmmmmmmORRRO',
+  'ORRrOOmmmmmmOOrRRO',
+  'OOOO.OXXXXXXO.OOOO',
+  '.....OOOOOOOO.....'
+], {
+  O: PAL.outline, M: PAL.metal, m: PAL.metalDark, R: PAL.rust, r: PAL.rustDark,
+  W: PAL.cyan, w: PAL.cyanDark, Y: PAL.yellow, y: PAL.yellowDark, X: PAL.scorch
+});
+
+// Llama del motor (dos fotogramas para el parpadeo)
+const FLAME_MAP = { W: PAL.flameW, Y: PAL.flameY, y: PAL.flameO, o: PAL.flameR, r: PAL.magenta };
+SPR.flame1 = makeSprite([
+  '.yYWWYy.',
+  '.yYWWYy.',
+  '..yYYy..',
+  '..oyyo..',
+  '...oo...',
+  '...rr...'
+], FLAME_MAP);
+SPR.flame2 = makeSprite([
+  'yYWWWWYy',
+  '.yYWWYy.',
+  '.yYYYYy.',
+  '..oyyo..',
+  '..oyyo..',
+  '...oo...',
+  '...rr...',
+  '...r....'
+], FLAME_MAP);
+
+// Cápsula de combustible de 250 g (pequeña, cian)
+SPR.fuel250 = makeSprite([
+  '.OOOO.',
+  'OMMMMO',
+  'OWWWwO',
+  'OWWWwO',
+  'OWWWwO',
+  'OMMMMO',
+  '.OOOO.'
+], { O: PAL.outline, M: PAL.metalLight, W: PAL.magenta, w: PAL.magentaDark });   // combustible: rosado
+
+// Cápsula de combustible de 500 g (grande, magenta)
+SPR.fuel500 = makeSprite([
+  '..OOOO..',
+  '.OMMMMO.',
+  'OPPPPPpO',
+  'OPPPPPpO',
+  'OPPYYPpO',
+  'OPPPPPpO',
+  'OPPPPPpO',
+  '.OMMMMO.',
+  '..OOOO..'
+], { O: PAL.outline, M: PAL.metalLight, P: PAL.magenta, p: PAL.magentaDark, Y: PAL.yellow });
+
+// Mineral alcalino (cristal verde neón): +1,25 de pH
+SPR.mineral = makeSprite([
+  '....O....',
+  '...OGO...',
+  '..OGLGO..',
+  '.OGGLGGO.',
+  '.OGLGGgO.',
+  'OGGLGGggO',
+  'OGLGGGggO',
+  '.OGGGggO.',
+  '..OOOOO..'
+], { O: PAL.outline, G: PAL.green, L: PAL.greenLight, g: PAL.greenDark });
+
+// Botella de refrigerante de 500 ml (azul hielo, tapa metálica)
+SPR.coolant = makeSprite([
+  '..OOO..',
+  '..OMO..',
+  '.OOMOO.',
+  'OIIIIiO',
+  'OIWIIiO',
+  'OIWIIiO',
+  'OIIIIiO',
+  'OiiiiiO',
+  '.OOOOO.'
+], { O: PAL.outline, M: PAL.metalLight, I: PAL.coolant, i: PAL.coolantDark, W: '#ffffff' });
+
+// Nave holográfica (fase 3): misma matriz que la nave, recoloreada en cian
+SPR.shipHolo = makeSprite(SPR.ship.rows, Object.fromEntries(Object.keys(SPR.ship.map).map(k =>
+  [k, k === 'O' ? PAL.cyanDark : (k === 'W' || k === 'Y') ? '#c8fbff' : PAL.cyan])));
+
+// Decoración: roca, cactus alienígena y calavera de vaca espacial
+SPR.rock = makeSprite([
+  '..OOOO..',
+  '.OmmMMO.',
+  'OmMMMMmO',
+  'OmmMMmmO',
+  '.OOOOOO.'
+], { O: PAL.outline, M: PAL.rock, m: PAL.rockDark });
+SPR.cactus = makeSprite([
+  '...N....',
+  '..OgO...',
+  'N.OgO...',
+  'OgOgO.N.',
+  'OgOgOOgO',
+  '.OggOgO.',
+  '..OgggO.',
+  '..OgO...',
+  '..OgO...',
+  '.OOOOO..'
+], { O: PAL.outline, g: PAL.teal, N: PAL.cyan });
+SPR.skull = makeSprite([
+  'O......O',
+  'WO....OW',
+  '.WWWWWW.',
+  '.WOWWOW.',
+  '..WWWW..',
+  '..WOOW..',
+  '...WW...'
+], { O: PAL.outline, W: PAL.bone });
+
+/* Dibuja un sprite (matriz) con fillRect.
+   Agrupa píxeles contiguos del mismo color en una sola llamada para ser
+   más eficiente. (x, y) es la esquina superior izquierda; s = tamaño de
+   cada píxel del sprite; flip = espejo horizontal. */
+function drawSprite(c, spr, x, y, s = 1, flip = false) {
+  x = Math.round(x);
+  y = Math.round(y);
+  for (let r = 0; r < spr.h; r++) {
+    const row = spr.rows[r];
+    let col = 0;
+    while (col < spr.w) {
+      const ch = row[flip ? spr.w - 1 - col : col];
+      if (ch === '.') { col++; continue; }
+      let run = 1;
+      while (col + run < spr.w && row[flip ? spr.w - 1 - (col + run) : col + run] === ch) run++;
+      c.fillStyle = spr.map[ch];
+      c.fillRect(x + col * s, y + r * s, run * s, s);
+      col += run;
+    }
+  }
+}
+
+/* Elipse rellena "pixelada": una fila de fillRect por cada línea. */
+function pxEllipse(c, cx, cy, rx, ry, color) {
+  ry = Math.max(1, Math.round(ry));
+  c.fillStyle = color;
+  for (let dy = -ry; dy <= ry; dy++) {
+    const w = Math.round(rx * Math.sqrt(Math.max(0, 1 - (dy * dy) / (ry * ry))));
+    c.fillRect(Math.round(cx - w), Math.round(cy + dy), w * 2 + 1, 1);
+  }
+}
+
+/* ---------------------------------------------------------------------
+   4. UTILIDADES
+   --------------------------------------------------------------------- */
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
+const lerp = (a, b, t) => a + (b - a) * t;
+const fmt = (n, d = 2) => n.toFixed(d).replace('.', ',');   // decimales con coma
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = arr => arr[(Math.random() * arr.length) | 0];
+
+// Generador pseudoaleatorio con semilla: el terreno es siempre igual.
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* ---------------------------------------------------------------------
+   5. TERRENO PRE-RENDERIZADO
+   El suelo (dunas, grietas, cráteres, surco del choque, rocas...) se
+   pinta UNA sola vez con fillRect en un canvas fuera de pantalla, a
+   1 píxel por píxel de arte. Luego se escala sin suavizado cada frame.
+   --------------------------------------------------------------------- */
+const SPROUTS = [];   // brotes luminiscentes animados (se dibujan cada frame)
+
+function bakeGround() {
+  const cv = document.createElement('canvas');
+  cv.width = WORLD_W;
+  cv.height = WORLD_H;
+  const g = cv.getContext('2d');
+  const R = mulberry32(1987);
+
+  // Base
+  g.fillStyle = PAL.ground;
+  g.fillRect(0, 0, WORLD_W, WORLD_H);
+
+  // Dunas de polvo oxidado
+  for (let i = 0; i < 24; i++) {
+    const rx = 30 + R() * 70;
+    pxEllipse(g, R() * WORLD_W, R() * WORLD_H, rx, rx * (0.3 + R() * 0.3), R() < 0.5 ? PAL.dune : PAL.ground2);
+  }
+  for (let i = 0; i < 10; i++) {
+    const rx = 12 + R() * 25;
+    pxEllipse(g, R() * WORLD_W, R() * WORLD_H, rx, rx * 0.35, PAL.dune2);
+  }
+
+  // Ruido de píxeles (textura de arena)
+  const noise = [PAL.ground2, PAL.ground3, PAL.dune, PAL.ground4];
+  for (let i = 0; i < 14000; i++) {
+    g.fillStyle = noise[(R() * noise.length) | 0];
+    g.fillRect((R() * WORLD_W) | 0, (R() * WORLD_H) | 0, 1, 1);
+  }
+
+  // Grietas serpenteantes
+  g.fillStyle = PAL.crack;
+  for (let i = 0; i < 20; i++) {
+    let x = R() * WORLD_W, y = R() * WORLD_H, a = R() * Math.PI * 2;
+    const len = 40 + R() * 70;
+    for (let s = 0; s < len; s++) {
+      a += (R() - 0.5) * 0.6;
+      x += Math.cos(a);
+      y += Math.sin(a);
+      g.fillRect(x | 0, y | 0, 1, 1);
+    }
+  }
+
+  // Cráteres (sombra, borde claro y fondo)
+  for (let i = 0; i < 10; i++) {
+    const x = R() * WORLD_W, y = R() * WORLD_H, r = 8 + R() * 18;
+    if (dist(x, y, SHIP_X, SHIP_Y) < 70) continue;
+    pxEllipse(g, x, y + 1, r + 2, r * 0.5 + 1, '#43293f');
+    pxEllipse(g, x, y, r, r * 0.5, '#170e1b');
+    pxEllipse(g, x + r * 0.15, y + r * 0.08, r * 0.65, r * 0.3, '#1f1324');
+  }
+
+  // Surco que dejó la nave al estrellarse (desde abajo-izquierda hasta ella)
+  for (let t = 0; t <= 1; t += 0.008) {
+    const x = lerp(SHIP_X - 6, SHIP_X - 190, t);
+    const y = lerp(SHIP_Y - 4, SHIP_Y + 130, t) + Math.sin(t * 9) * 3;
+    pxEllipse(g, x, y, 8 * (1 - t * 0.6), 3.5 * (1 - t * 0.5), '#170e1b');
+  }
+  for (let i = 0; i < 160; i++) {
+    const t = R();
+    const x = lerp(SHIP_X - 6, SHIP_X - 190, t) + (R() - 0.5) * 26;
+    const y = lerp(SHIP_Y - 4, SHIP_Y + 130, t) + (R() - 0.5) * 14;
+    g.fillStyle = R() < 0.5 ? PAL.rustDark : PAL.dune2;
+    g.fillRect(x | 0, y | 0, R() < 0.3 ? 2 : 1, 1);
+  }
+
+  // Decoración con sprites (lejos de la nave)
+  const place = (spr, count, minD = 70) => {
+    for (let i = 0; i < count; i++) {
+      const x = 10 + R() * (WORLD_W - 20), y = 10 + R() * (WORLD_H - 20);
+      if (dist(x, y, SHIP_X, SHIP_Y) < minD) continue;
+      drawSprite(g, spr, x, y, 1, R() < 0.5);
+    }
+  };
+  place(SPR.rock, 34);
+  place(SPR.cactus, 18);
+  place(SPR.skull, 6);
+
+  // Borde del mundo: acantilado oscuro
+  g.fillStyle = PAL.outline;
+  g.fillRect(0, 0, WORLD_W, 4);
+  g.fillRect(0, WORLD_H - 4, WORLD_W, 4);
+  g.fillRect(0, 0, 4, WORLD_H);
+  g.fillRect(WORLD_W - 4, 0, 4, WORLD_H);
+
+  // Posiciones de brotes de neón (animados en drawWorld)
+  for (let i = 0; i < 45; i++) {
+    SPROUTS.push({ x: (R() * WORLD_W) | 0, y: (R() * WORLD_H) | 0, p: R() * 6.28, c: R() < 0.5 ? PAL.cyan : PAL.magenta });
+  }
+  return cv;
+}
+const GROUND = bakeGround();
+
+/* ---------------------------------------------------------------------
+   6. ESTADO DEL JUEGO
+   --------------------------------------------------------------------- */
+let W = 0, H = 0, dpr = 1, zoom = 3, ui = 1;   // tamaño en píxeles reales y escalas
+
+const G = {
+  state: 'title',     // 'title' | 'play' | 'launch' | 'landing'
+  phase: 0,           // 0 = reconocimiento, 1, 2, 3, 4 = epílogo (Planeta JVC-028)
+  paused: false,      // fase 4: true mientras la carta del regalo está abierta
+  time: 0,
+  busy: false,        // true durante transiciones entre fases
+  timers: [],
+  toasts: [],
+  particles: [],
+  items: [],          // objetos recolectables en el mapa
+  inventory: [],      // fase 1: objetos en la mochila {kind, amt}
+  fuelIn: 0,          // fase 1: gramos de combustible ya cargados en la nave
+  coolIn: 0,          // fase 1: ml de refrigerante ya cargados en la nave
+  minerals: 0,        // fase 2: minerales en la mochila
+  ph: 2,              // fase 2: pH del motor
+  phaseStart: 0,      // momento en que empezó la fase (para el manual)
+  sim: null,          // fase 3: simulación holográfica en curso
+  gauge: null,        // fase 3: medidor de ángulo
+  nearShip: false,
+  wasNear: false,
+  touchUI: window.matchMedia && window.matchMedia('(pointer: coarse)').matches,
+  launchT: 0,
+  landT: 0,           // fase 4: tiempo desde que empezó el aterrizaje
+  fade: 0,            // fundido a blanco entre planetas (0..1)
+  shake: 0,
+  flowersPlayed: 0,   // fase 4: flores distintas que ya sonaron
+  fiesta: false,      // fase 4: easter egg "Fiesta Planetaria" (cantaron las 20 flores)
+  fiestaNext: 0,      // fase 4: momento del próximo fuego automático de la fiesta
+  fiestaOpen: false,  // fase 4: cartel "¡Fiesta interplanetaria!" abierto
+  banner: null,       // cartel grande centrado temporal {text, t0, dur}
+  nextFlower: 0,      // fase 4: color/nota de la próxima flor a sembrar (orden Do-Re-Mi-Fa-Sol)
+  fireworks: [],      // fase 4: proyectiles de fuegos artificiales en vuelo
+  fwReadyAt: 0        // fase 4: pequeño enfriamiento entre disparos
+};
+
+const player = { x: SHIP_X - 60, y: SHIP_Y + 38, facing: 1, moving: false, animT: 0, hidden: false, dustT: 0 };
+const ship = { x: SHIP_X, y: SHIP_Y, baseY: SHIP_Y, tilt: -0.28, vy: 0 };
+const cam = { x: 0, y: 0 };
+
+// Programador simple de eventos diferidos (en segundos de juego)
+function after(sec, fn) { G.timers.push({ t: G.time + sec, fn }); }
+function runTimers() {
+  const due = G.timers.filter(t => t.t <= G.time);
+  G.timers = G.timers.filter(t => t.t > G.time);
+  due.forEach(t => t.fn());
+}
+
+// Mensajes emergentes
+function toast(text, color = PAL.text, dur = 2.8) {
+  G.toasts.push({ text, color, t0: G.time, dur });
+  if (G.toasts.length > 2) G.toasts.shift();
+}
+
+/* ---------------------------------------------------------------------
+   7. AUDIO SINTETIZADO (WebAudio, sin archivos)
+   --------------------------------------------------------------------- */
+let AC = null;
+function initAudio() {
+  try {
+    if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+    if (AC.state === 'suspended') AC.resume();
+  } catch (e) { AC = null; }
+}
+function beep(f, d = 0.1, type = 'square', v = 0.05, f2 = null, delay = 0) {
+  if (!AC) return;
+  try {
+    const t = AC.currentTime + delay;
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(f, t);
+    if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + d);
+    g.gain.setValueAtTime(v, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(g).connect(AC.destination);
+    o.start(t);
+    o.stop(t + d + 0.05);
+  } catch (e) { /* audio no disponible: se ignora */ }
+}
+const SFX = {
+  pick: () => { beep(660, 0.07); beep(990, 0.09, 'square', 0.04, null, 0.06); },
+  error: () => beep(220, 0.35, 'sawtooth', 0.06, 70),
+  info: () => beep(440, 0.06, 'triangle', 0.05),
+  success: () => [523, 659, 784, 1046].forEach((f, i) => beep(f, 0.14, 'square', 0.05, null, i * 0.1)),
+  launch: () => { beep(90, 3.2, 'sawtooth', 0.09, 30); beep(45, 3.2, 'square', 0.05, 25); },
+  tick: () => beep(1400, 0.02, 'square', 0.012)
+};
+
+/* ---------------------------------------------------------------------
+   8. ENTRADA: teclado, joystick virtual y "mantener para moverse"
+   --------------------------------------------------------------------- */
+const keys = {};
+const joy = { x: 0, y: 0, R: 50, active: false, id: null, kx: 0, ky: 0 };
+let movePtr = null;   // puntero que mantiene pulsado fuera del joystick
+
+function toCanvas(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * dpr, y: (e.clientY - r.top) * dpr };
+}
+
+window.addEventListener('keydown', e => {
+  // Con la carta abierta, el teclado es para los botones (Escape la cierra)
+  if (G.fiestaOpen) { if (e.code === 'Escape') closeFiesta(); return; }
+  if (G.paused) { if (e.code === 'Escape') closeLetter(); return; }
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+  initAudio();
+  keys[e.code] = true;
+  if (e.repeat) return;
+  if (G.state === 'title') { startGame(); return; }
+  if (G.state === 'play' && G.phase === 3 && (e.code === 'Space' || e.code === 'Enter')) fire();
+  if (G.state === 'play' && G.phase === 4) {
+    if (e.code === 'KeyE') plantTree();
+    if (e.code === 'KeyF') plantFlower();
+    if (e.code === 'Space') launchFirework(player.x + player.facing * 70, player.y - 45);   // fuego hacia adelante
+  }
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+canvas.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  initAudio();
+  canvas.focus();
+  if (e.pointerType === 'touch') G.touchUI = true;
+  if (G.state === 'title') { startGame(); return; }
+  if (G.state !== 'play' || G.paused) return;
+  if (G.phase === 3) { fire(); return; }
+
+  const p = toCanvas(e);
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* sin captura */ }
+  // ¿Toque sobre el joystick? (esquina inferior derecha)
+  if (G.touchUI && !joy.active && dist(p.x, p.y, joy.x, joy.y) < joy.R * 1.8) {
+    joy.active = true;
+    joy.id = e.pointerId;
+    joy.kx = p.x - joy.x;
+    joy.ky = p.y - joy.y;
+  } else if (!movePtr) {
+    // Cualquier otro toque/clic: el vaquero camina hacia el dedo/cursor.
+    // En la fase 4 primero esperamos a ver si es un TAP (dispara) o un
+    // DESLIZAMIENTO / dedo mantenido (camina): ver pointermove y releasePointer.
+    const tapMode = G.phase === 4;
+    movePtr = { id: e.pointerId, x: p.x, y: p.y, x0: p.x, y0: p.y, t0: performance.now(), tapMode, dragging: !tapMode };
+  }
+});
+const TAP_MOVE_PX = 12;     // desplazamiento (px CSS) a partir del cual ya es deslizamiento
+const TAP_MAX_MS = 280;     // un toque más largo que esto (sin mover) se vuelve "mantener para caminar"
+window.addEventListener('pointermove', e => {
+  const p = toCanvas(e);
+  if (joy.active && e.pointerId === joy.id) { joy.kx = p.x - joy.x; joy.ky = p.y - joy.y; }
+  if (movePtr && e.pointerId === movePtr.id) {
+    movePtr.x = p.x;
+    movePtr.y = p.y;
+    if (!movePtr.dragging && dist(p.x, p.y, movePtr.x0, movePtr.y0) > TAP_MOVE_PX * dpr) movePtr.dragging = true;
+  }
+});
+function releasePointer(e) {
+  if (joy.active && e.pointerId === joy.id) { joy.active = false; joy.id = null; joy.kx = joy.ky = 0; }
+  if (movePtr && e.pointerId === movePtr.id) {
+    // Fase 4: toque rápido sin mover el dedo = fuego artificial hacia ese punto
+    const quick = performance.now() - movePtr.t0 <= TAP_MAX_MS;
+    if (movePtr.tapMode && !movePtr.dragging && quick && e.type === 'pointerup' && G.phase === 4) {
+      launchFirework(movePtr.x0 / zoom + cam.x, movePtr.y0 / zoom + cam.y);
+    }
+    movePtr = null;
+  }
+}
+window.addEventListener('pointerup', releasePointer);
+window.addEventListener('pointercancel', releasePointer);
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('gesturestart', e => e.preventDefault());
+
+/* Combina todas las fuentes de entrada en un vector de dirección (-1..1). */
+function getInputVector() {
+  let x = 0, y = 0;
+  if (keys.KeyA || keys.ArrowLeft) x -= 1;
+  if (keys.KeyD || keys.ArrowRight) x += 1;
+  if (keys.KeyW || keys.ArrowUp) y -= 1;
+  if (keys.KeyS || keys.ArrowDown) y += 1;
+  if (x || y) { const l = Math.hypot(x, y); return { x: x / l, y: y / l }; }
+
+  if (joy.active) {
+    const l = Math.hypot(joy.kx, joy.ky);
+    if (l > joy.R * 0.15) {
+      const m = Math.min(1, l / joy.R);
+      return { x: (joy.kx / l) * m, y: (joy.ky / l) * m };
+    }
+  }
+  // Dedo mantenido quieto un ratito: también camina (ya no cuenta como tap)
+  if (movePtr && !movePtr.dragging && performance.now() - movePtr.t0 > TAP_MAX_MS) movePtr.dragging = true;
+  if (movePtr && movePtr.dragging) {
+    const sx = (player.x - cam.x) * zoom, sy = (player.y - 8 - cam.y) * zoom;
+    const dx = movePtr.x - sx, dy = movePtr.y - sy, l = Math.hypot(dx, dy);
+    if (l > 10 * ui) return { x: dx / l, y: dy / l };
+  }
+  return { x: 0, y: 0 };
+}
+
+/* ---------------------------------------------------------------------
+   9. LÓGICA DE FASES
+   --------------------------------------------------------------------- */
+function startGame() {
+  G.state = 'play';
+  G.phase = 0;
+  toast('Aterrizaje forzoso en Kepler-7. Acércate a la nave.', PAL.cyan, 3.5);
+  SFX.info();
+}
+
+/* Busca un punto libre para un objeto: lejos de la nave, del jugador y
+   de otros objetos, dentro de un radio razonable alrededor de la nave. */
+function randomSpot() {
+  for (let i = 0; i < 300; i++) {
+    const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random());
+    const x = SHIP_X + Math.cos(a) * r * 300, y = SHIP_Y + Math.sin(a) * r * 225;
+    if (x < 24 || y < 24 || x > WORLD_W - 24 || y > WORLD_H - 24) continue;
+    if (dist(x, y, SHIP_X, SHIP_Y - 10) < 80) continue;
+    if (dist(x, y, player.x, player.y) < 45) continue;
+    if (G.items.some(it => dist(x, y, it.x, it.y) < 30)) continue;
+    return { x, y };
+  }
+  return { x: rand(40, WORLD_W - 40), y: rand(40, 120) };
+}
+/* Objetos del mapa: {kind: 'fuel' | 'coolant' | 'mineral', amt, x, y}.
+   amt = gramos (combustible) o mililitros (refrigerante; 1 ml = 1 g). */
+function spawnItem(kind, amt) {
+  G.items.push({ kind, amt, ...randomSpot(), seed: Math.random() * 6.28, noPickUntil: 0 });
+}
+const spawnFuel = grams => spawnItem('fuel', grams);
+const spawnCoolant = () => spawnItem('coolant', 500);
+const spawnMineral = () => spawnItem('mineral', 1);
+
+/* Deja caer un objeto al suelo alrededor de (x, y). Durante un segundo no
+   se puede recoger, para que no vuelva solo a la mochila. */
+function dropItem(kind, amt, x, y, minR = 18, maxR = 34) {
+  const a = Math.random() * Math.PI * 2, r = rand(minR, maxR);
+  let dx = clamp(x + Math.cos(a) * r, 16, WORLD_W - 16);
+  let dy = clamp(y + Math.sin(a) * r * 0.8, 24, WORLD_H - 10);
+  const cy = ship.baseY - 10;
+  if (dist(dx, dy, ship.x, cy) < 50) {          // que no caiga dentro de la nave
+    const b = Math.atan2(dy - cy, dx - ship.x);
+    dx = ship.x + Math.cos(b) * 50;
+    dy = cy + Math.sin(b) * 50;
+  }
+  G.items.push({ kind, amt, x: dx, y: dy, seed: Math.random() * 6.28, noPickUntil: G.time + 1 });
+  burst(dx, dy - 4, 5, [PAL.dune2, PAL.text], 20, 0.4);
+}
+
+// Apariencia de cada objeto
+const itemSprite = it => it.kind === 'mineral' ? SPR.mineral : it.kind === 'coolant' ? SPR.coolant : it.amt === 250 ? SPR.fuel250 : SPR.fuel500;
+const itemColor = it => it.kind === 'mineral' ? PAL.green : it.kind === 'coolant' ? PAL.coolant : PAL.magenta;
+const itemLabel = it => it.kind === 'mineral' ? '+1,25 pH' : it.kind === 'coolant' ? '500 ml' : `${it.amt} g`;
+const loadOf = () => G.inventory.reduce((a, it) => a + it.amt, 0);   // carga de la mochila en g
+
+function startPhase(n) {
+  G.phase = n;
+  G.busy = false;
+  G.phaseStart = G.time;
+  if (n === 1) {
+    G.items = [];
+    G.inventory = [];
+    G.fuelIn = 0;
+    G.coolIn = 0;
+    // 3000 g de combustible y 2000 ml de refrigerante en el mapa: siempre alcanza
+    for (let i = 0; i < 4; i++) spawnFuel(500);
+    for (let i = 0; i < 4; i++) spawnFuel(250);
+    for (let i = 0; i < 4; i++) spawnCoolant();
+    toast('FASE 1: carga 2,5 kg de combustible y 1,5 L de refrigerante.', PAL.yellow, 3.5);
+  } else if (n === 2) {
+    G.items = [];
+    G.inventory = [];
+    G.minerals = 0;
+    G.ph = PH_START;
+    for (let i = 0; i < 7; i++) spawnMineral();
+    toast('FASE 2: el ácido se está comiendo el motor (pH 2,0).', PAL.yellow, 3.5);
+  } else if (n === 3) {
+    G.items = [];
+    G.sim = null;
+    player.hidden = true;     // el vaquero entra en la nave
+    burst(player.x, player.y - 8, 24, [PAL.cyan, PAL.yellow, PAL.text], 40, 0.8);
+    G.gauge = { angle: 0, dir: 1, speed: 46, misses: 0, shots: [], locked: false, freezeUntil: 0, readyAt: G.time + 1.2 };
+    toast('El vaquero sube a bordo. Hora de despegar.', PAL.cyan, 3.5);
+  }
+}
+
+/* Se dispara al ENTRAR en la zona de la nave (no cada frame). */
+function onEnterShip() {
+  if (G.busy) return;
+  if (G.phase === 0) { SFX.info(); startPhase(1); return; }
+
+  if (G.phase === 1) {
+    const fLeft = FUEL_NEEDED_G - G.fuelIn, cLeft = COOLANT_NEEDED_ML - G.coolIn;
+    if (!G.inventory.length) {
+      SFX.info();
+      toast(`Mochila vacía. Faltan ${fmt(fLeft / 1000)} kg de combustible y ${fmt(cLeft / 1000, 1)} L de refrigerante.`, PAL.text, 3.2);
+      return;
+    }
+    // Descarga objeto por objeto; lo que no entra en su tanque queda junto a la nave
+    let gotF = 0, gotC = 0;
+    const rejected = [];
+    for (const it of G.inventory) {
+      if (it.kind === 'fuel' && G.fuelIn + it.amt <= FUEL_NEEDED_G) { G.fuelIn += it.amt; gotF += it.amt; }
+      else if (it.kind === 'coolant' && G.coolIn + it.amt <= COOLANT_NEEDED_ML) { G.coolIn += it.amt; gotC += it.amt; }
+      else rejected.push(it);
+    }
+    G.inventory = [];
+    rejected.forEach(it => dropItem(it.kind, it.amt, ship.x, ship.baseY - 10, 52, 62));
+    if (gotF) burst(ship.x, ship.y - 20, 12, [PAL.magenta, PAL.text], 40, 0.8);
+    if (gotC) burst(ship.x, ship.y - 20, 12, [PAL.coolant, PAL.text], 40, 0.8);
+
+    if (G.fuelIn === FUEL_NEEDED_G && G.coolIn === COOLANT_NEEDED_ML) {
+      G.busy = true;
+      SFX.success();
+      toast('Tanques llenos: 2,5 kg de combustible y 1,5 L de refrigerante.', PAL.green, 3.2);
+      burst(ship.x, ship.y - 20, 30, [PAL.cyan, PAL.magenta, PAL.yellow], 50, 1);
+      after(2.2, () => startPhase(2));
+      return;
+    }
+    const parts = [];
+    if (gotF) parts.push(`+${gotF} g de combustible`);
+    if (gotC) parts.push(`+${gotC} ml de refrigerante`);
+    if (parts.length) { SFX.pick(); toast(`Descargado: ${parts.join(' y ')}.`, PAL.green, 2.6); }
+    if (rejected.length) {
+      SFX.error();
+      const r = rejected[0];
+      const room = r.kind === 'fuel' ? `${FUEL_NEEDED_G - G.fuelIn} g de combustible` : `${COOLANT_NEEDED_ML - G.coolIn} ml de refrigerante`;
+      toast(`Eso rebalsa el tanque: solo caben ${room} más. Lo dejé junto a la nave.`, PAL.red, 3.4);
+    }
+    return;
+  }
+
+  if (G.phase === 2) {
+    if (G.minerals === 0) {
+      SFX.info();
+      toast(`pH del motor: ${fmt(G.ph)}. Trae minerales alcalinos.`, PAL.text);
+      return;
+    }
+    const n = G.minerals;
+    G.minerals = 0;
+    for (let i = 0; i < n; i++) spawnMineral();     // el mapa se repone
+    G.ph = Math.round((G.ph + n * PH_PER_MINERAL) * 100) / 100;   // suma lineal
+    burst(ship.x, ship.y - 12, 14 * n, [PAL.green, PAL.greenLight], 35, 0.8);
+
+    if (Math.abs(G.ph - PH_TARGET) < 1e-6) {
+      G.ph = PH_TARGET;
+      G.busy = true;
+      SFX.success();
+      toast('pH 7,00: ¡neutro! El ácido ya no corroe el motor.', PAL.green, 3.2);
+      after(2.4, () => startPhase(3));
+    } else if (G.ph < PH_TARGET) {
+      SFX.info();
+      toast(`+${fmt(n * PH_PER_MINERAL)} → pH ${fmt(G.ph)}: todavía ácido.`, PAL.yellow, 3.2);
+    } else {
+      SFX.error();
+      toast(`pH ${fmt(G.ph)}: ¡te pasaste a alcalino! Sistema abortado.`, PAL.red, 3.2);
+      G.busy = true;
+      after(1.8, () => {
+        G.ph = PH_START;
+        G.busy = false;
+        toast('Purga completa: el tanque vuelve a pH 2,0.', PAL.magenta, 3.2);
+      });
+    }
+  }
+}
+
+/* Fase 3: el jugador fija un ángulo y se lanza una simulación holográfica.
+   Alcance relativo = sen(2·θ): el 100 % solo se logra cerca de 45°, pero
+   eso no se le dice al jugador; lo deduce comparando sus intentos. */
+function fire() {
+  const g = G.gauge;
+  if (!g || G.busy || g.locked || G.sim || G.time < g.readyAt) return;
+  const a = g.angle;
+  const ok = Math.abs(a - 45) <= ANGLE_TOLERANCE;
+  const pct = ok ? 100 : Math.round(Math.sin((2 * a * Math.PI) / 180) * 100);
+  G.sim = { angle: a, pct, ok, t0: G.time };
+  g.shots.push({ angle: a, pct });
+  if (g.shots.length > 6) g.shots.shift();
+  beep(300, 0.5, 'triangle', 0.04, 900);   // zumbido del holograma
+
+  if (ok) {
+    g.locked = true;
+    G.busy = true;
+    after(SIM_FLIGHT, () => {
+      SFX.success();
+      toast('¡Alcance del 100%! Los ángulos intermedios llegan más lejos: el máximo está en 45°.', PAL.green, 3.4);
+    });
+    after(SIM_FLIGHT + SIM_HOLD + 0.2, () => { G.sim = null; startLaunch(); });
+  } else {
+    g.misses++;
+    g.speed = Math.max(22, g.speed - 3);   // la aguja se calma tras cada fallo
+    g.freezeUntil = G.time + SIM_FLIGHT + SIM_HOLD;
+    after(SIM_FLIGHT, () => {
+      SFX.error();
+      toast(`Alcance insuficiente: ${pct}% de la distancia necesaria`, PAL.red, 2.8);
+      if (g.misses === 4) toast('Pista del Asistente de Navegación: compara tus intentos. ¿Qué pasa entre un ángulo bajo y uno alto?', PAL.yellow, 4);
+    });
+    after(SIM_FLIGHT + SIM_HOLD, () => { G.sim = null; });
+  }
+}
+
+function startLaunch() {
+  G.state = 'launch';
+  G.launchT = 0;
+  ship.vy = 0;
+  SFX.launch();
+}
+
+/* ---------------------------------------------------------------------
+   10. UPDATE: actualización del estado (sin dibujar nada)
+   --------------------------------------------------------------------- */
+function update(dt) {
+  G.time += dt;
+  runTimers();
+
+  if (G.state === 'play') {
+    if (G.phase < 3) {
+      updatePlayer(dt);
+      updatePickups();
+      updateShipZone();
+    } else if (G.phase === 3) {
+      updateGauge(dt);
+    } else {
+      updateEpilogue(dt);
+    }
+  } else if (G.state === 'launch') {
+    updateLaunch(dt);
+  } else if (G.state === 'landing') {
+    updateLanding(dt);
+  }
+
+  updateShipAmbient(dt);
+  updateParticles(dt);
+  updateCamera(dt);
+  G.toasts = G.toasts.filter(t => G.time - t.t0 < t.dur);
+  updateSeedUI();   // botones HTML de la fase 4
+}
+
+function updatePlayer(dt) {
+  const v = getInputVector();
+  player.moving = Math.abs(v.x) + Math.abs(v.y) > 0.05;
+  player.x = clamp(player.x + v.x * PLAYER_SPEED * dt, 10, WORLD_W - 10);
+  player.y = clamp(player.y + v.y * PLAYER_SPEED * dt, 20, WORLD_H - 6);
+  if (v.x > 0.1) player.facing = 1;
+  if (v.x < -0.1) player.facing = -1;
+  if (player.moving) {
+    player.animT += dt;
+    player.dustT -= dt;
+    if (player.dustT <= 0) {   // polvo de las botas
+      player.dustT = 0.12;
+      G.particles.push({ x: player.x + rand(-3, 3), y: player.y, vx: rand(-6, 6), vy: rand(-6, -2), life: 0.5, max: 0.5, c: PAL.dune2, s: 1 });
+    }
+  } else {
+    player.animT = 0;
+  }
+}
+
+function updatePickups() {
+  for (let i = G.items.length - 1; i >= 0; i--) {
+    const it = G.items[i];
+    if (G.time < it.noPickUntil) continue;
+    if (dist(player.x, player.y - 5, it.x, it.y - 4) > 11) continue;
+    G.items.splice(i, 1);
+
+    if (it.kind !== 'mineral') {
+      const load = loadOf() + it.amt;
+      if (load > BACKPACK_MAX_G) {
+        // ¡Sobrecarga! Todo lo que llevaba cae al suelo a su alrededor
+        SFX.error();
+        toast(`¡SOBRECARGA! ${load} g > 1 kg. Se te cayó todo al suelo.`, PAL.red, 3.2);
+        burst(player.x, player.y - 8, 30, [PAL.red, PAL.yellow, PAL.rust], 60, 0.7);
+        G.shake = 2;
+        const all = [...G.inventory, it];
+        G.inventory = [];
+        all.forEach(o => dropItem(o.kind, o.amt, player.x, player.y));
+        return;
+      }
+      G.inventory.push({ kind: it.kind, amt: it.amt });
+      SFX.pick();
+      burst(it.x, it.y - 4, 10, [itemColor(it), PAL.text], 30, 0.5);
+      toast(`+${itemLabel(it)} → mochila: ${load} g`, itemColor(it), 1.8);
+    } else {
+      G.minerals++;
+      SFX.pick();
+      burst(it.x, it.y - 4, 10, [PAL.green, PAL.greenLight], 30, 0.5);
+      toast(`+1 mineral alcalino (llevas ${G.minerals})`, PAL.green, 1.8);
+    }
+  }
+}
+
+/* Colisión con la nave y detección de "entrar en su zona". */
+function updateShipZone() {
+  const cx = ship.x, cy = ship.baseY - 10;
+  const d = dist(player.x, player.y, cx, cy);
+  const minD = 20;
+  if (d < minD) {
+    const a = Math.atan2(player.y - cy, player.x - cx);
+    player.x = cx + Math.cos(a) * minD;
+    player.y = cy + Math.sin(a) * minD;
+  }
+  const near = d < 42;
+  if (near && !G.wasNear) onEnterShip();
+  G.nearShip = near;
+  G.wasNear = near;
+}
+
+/* Aguja del radar: onda triangular entre 0° y 90°. */
+function updateGauge(dt) {
+  const g = G.gauge;
+  if (!g || g.locked || G.time < g.freezeUntil) return;
+  g.angle += g.dir * g.speed * dt;
+  if (g.angle >= 90) { g.angle = 90; g.dir = -1; }
+  if (g.angle <= 0) { g.angle = 0; g.dir = 1; }
+}
+
+/* Humo, chispas y enderezado de la nave según la fase. */
+function updateShipAmbient(dt) {
+  const targetTilt = G.phase >= 3 ? 0 : -0.28;
+  ship.tilt = lerp(ship.tilt, targetTilt, Math.min(1, dt * 2.5));
+
+  if (G.phase <= 2 && G.state !== 'launch') {
+    // El humo disminuye a medida que se neutraliza el ácido
+    const rate = G.phase === 2 ? 0.35 - ((G.ph - PH_START) / (PH_TARGET - PH_START)) * 0.25 : 0.35;
+    if (Math.random() < rate) {
+      G.particles.push({
+        x: ship.x + rand(2, 10), y: ship.baseY - rand(28, 36), vx: rand(2, 7), vy: rand(-14, -8),
+        life: rand(1.6, 2.6), max: 2.6, c: pick(['#4a3a55', '#5e4d66', '#3a2d44']), s: pick([2, 2, 3])
+      });
+    }
+    if (G.phase <= 1 && Math.random() < 0.04) {
+      burst(ship.x + rand(-8, 8), ship.baseY - rand(14, 30), 4, [PAL.yellow, PAL.flameO], 30, 0.35);
+    }
+  }
+}
+
+function updateLaunch(dt) {
+  G.launchT += dt;
+  const t = G.launchT;
+
+  if (t > 0.5) {                          // aceleración creciente hacia arriba
+    ship.vy -= (30 + t * 130) * dt;
+    ship.y += ship.vy * dt;
+  }
+  // Llamas y polvo
+  for (let i = 0; i < 4; i++) {
+    G.particles.push({
+      x: ship.x + rand(-5, 5), y: ship.y + 4, vx: rand(-12, 12), vy: rand(40, 90),
+      life: rand(0.3, 0.7), max: 0.7, c: pick([PAL.flameW, PAL.flameY, PAL.flameO, PAL.flameR, PAL.magenta]), s: pick([1, 2, 2])
+    });
+  }
+  if (t < 1.6) {
+    for (let i = 0; i < 3; i++) {
+      const a = Math.random() * Math.PI * 2;
+      G.particles.push({ x: ship.x, y: ship.baseY, vx: Math.cos(a) * 60, vy: Math.sin(a) * 20, life: 0.9, max: 0.9, c: pick([PAL.dune2, '#5e4d66']), s: 2 });
+    }
+  }
+  G.shake = t < 2.4 ? Math.min(3, 0.8 + t) : Math.max(0, G.shake - dt * 3);
+  if (t > 2.6) G.fade = Math.min(1, (t - 2.6) / 1.0);   // fundido a blanco
+  if (t > 3.8) startEpilogue();                          // con la pantalla en blanco, cambia de planeta
+}
+
+function updateParticles(dt) {
+  for (const p of G.particles) {
+    if (p.g) p.vy += p.g * dt;   // gravedad opcional (chispas de fuegos artificiales)
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.life -= dt;
+  }
+  G.particles = G.particles.filter(p => p.life > 0);
+  if (G.particles.length > 700) G.particles.splice(0, G.particles.length - 700);
+  if (G.state === 'play') G.shake = Math.max(0, G.shake - dt * 6);
+}
+
+function burst(x, y, n, colors, speed, life) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, s = rand(0.3, 1) * speed;
+    G.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 10, life: rand(0.5, 1) * life, max: life, c: pick(colors), s: pick([1, 1, 2]) });
+  }
+}
+
+/* Cámara: sigue al jugador (o a la nave en la fase 3) y no sale del mapa. */
+function updateCamera(dt, instant = false) {
+  let tx, ty;
+  if (G.state === 'landing') { tx = ship.x + 14; ty = ship.baseY - 30; }
+  else if (G.phase === 3 || G.state === 'launch') { tx = SHIP_X; ty = ship.baseY - 45; }
+  else { tx = player.x; ty = player.y - 8; }
+  const vw = W / zoom, vh = H / zoom;
+  let cx = tx - vw / 2, cy = ty - vh / 2;
+  cx = vw >= WORLD_W ? (WORLD_W - vw) / 2 : clamp(cx, 0, WORLD_W - vw);
+  cy = vh >= WORLD_H ? (WORLD_H - vh) / 2 : clamp(cy, 0, WORLD_H - vh);
+  const k = instant ? 1 : Math.min(1, dt * 6);
+  cam.x += (cx - cam.x) * k;
+  cam.y += (cy - cam.y) * k;
+}
+
+/* ---------------------------------------------------------------------
+   11. DRAW: renderizado (no modifica el estado del juego)
+   --------------------------------------------------------------------- */
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+
+  ctx.fillStyle = PAL.night;
+  ctx.fillRect(0, 0, W, H);
+
+  // Transformación de mundo: 1 unidad = 1 píxel de arte = "zoom" píxeles reales
+  const sx = G.shake ? (Math.random() - 0.5) * G.shake * zoom : 0;
+  const sy = G.shake ? (Math.random() - 0.5) * G.shake * zoom : 0;
+  ctx.setTransform(zoom, 0, 0, zoom, Math.round(-cam.x * zoom + sx), Math.round(-cam.y * zoom + sy));
+  drawWorld();
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (G.state === 'title') drawTitle();
+  else if (G.state === 'play') drawHUD();
+  else drawToasts(H * 0.7);
+
+  if (G.fade > 0) {
+    ctx.fillStyle = `rgba(255,250,242,${G.fade})`;   // fundido a blanco
+    ctx.fillRect(0, 0, W, H);
+  }
+  drawScanlines();
+}
+
+/* --- Mundo ---------------------------------------------------------- */
+function drawWorld() {
+  const epi = G.phase === 4;
+  ctx.drawImage(epi ? GROUND2 : GROUND, 0, 0);
+
+  // Brotes de neón que laten
+  for (const s of (epi ? SPROUTS2 : SPROUTS)) {
+    const a = 0.35 + 0.65 * Math.abs(Math.sin(G.time * 1.5 + s.p));
+    ctx.globalAlpha = a;
+    ctx.fillStyle = s.c;
+    ctx.fillRect(s.x, s.y, 1, 1);
+    ctx.fillRect(s.x + 1, s.y - 1, 1, 1);
+    ctx.globalAlpha = 1;
+  }
+
+  drawAcidPuddle();
+  G.items.forEach(drawItem);
+
+  // Orden por profundidad (Y): lo que está más abajo se dibuja encima
+  const ents = [{ y: ship.baseY, draw: drawShip }];
+  if (epi) addEpilogueEnts(ents);
+  if (!player.hidden && G.state !== 'launch') ents.push({ y: player.y, draw: drawPlayer });
+  ents.sort((a, b) => a.y - b.y).forEach(e => e.draw());
+
+  drawParticles();
+  if (epi) drawFireworks();
+  if (G.phase === 3 && G.state === 'play') drawGauge();
+}
+
+/* Charco de ácido bajo la nave: se encoge al neutralizar. */
+function drawAcidPuddle() {
+  let acidity = 1;
+  if (G.phase === 2) acidity = 1 - clamp((G.ph - PH_START) / (PH_TARGET - PH_START), 0, 1);
+  if (G.phase >= 3) acidity = 0;
+  if (acidity <= 0.02) return;
+  const rx = 10 + 30 * acidity, cx = ship.x + 4, cy = ship.baseY + 2;
+  ctx.globalAlpha = 0.35;
+  pxEllipse(ctx, cx, cy, rx, rx * 0.4, PAL.green);
+  ctx.globalAlpha = 0.5;
+  pxEllipse(ctx, cx, cy, rx * 0.6, rx * 0.22, PAL.greenDark);
+  ctx.globalAlpha = 1;
+  // burbujas
+  ctx.fillStyle = PAL.greenLight;
+  for (let i = 0; i < 5; i++) {
+    const t = (G.time * 0.7 + i * 0.37) % 1;
+    const bx = cx + Math.sin(i * 12.9) * rx * 0.8, by = cy + Math.cos(i * 7.3) * rx * 0.3;
+    if (t < 0.5) ctx.fillRect(Math.round(bx), Math.round(by), 1, 1);
+  }
+}
+
+function drawItem(it) {
+  const spr = itemSprite(it);
+  const col = itemColor(it);
+  const bob = Math.round(Math.sin(G.time * 3 + it.seed) * 1.2);
+
+  // halo de neón en el suelo
+  ctx.globalAlpha = 0.18 + 0.12 * Math.sin(G.time * 4 + it.seed);
+  pxEllipse(ctx, it.x, it.y, 7, 3, col);
+  ctx.globalAlpha = 1;
+  pxEllipse(ctx, it.x, it.y, 3, 1, 'rgba(0,0,0,0.45)');
+
+  // recién caído al suelo: parpadea mientras no se puede recoger
+  if (G.time < it.noPickUntil) ctx.globalAlpha = (G.time * 10 | 0) % 2 ? 0.4 : 0.8;
+  drawSprite(ctx, spr, it.x - spr.w / 2, it.y - spr.h - 1 + bob, 1);
+  ctx.globalAlpha = 1;
+
+  // etiqueta
+  const label = itemLabel(it);
+  ctx.font = fontStr(6);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillStyle = PAL.outline;
+  ctx.fillText(label, it.x + 0.6, it.y - spr.h - 2 + bob + 0.6);
+  ctx.fillStyle = col;
+  ctx.fillText(label, it.x, it.y - spr.h - 2 + bob);
+}
+
+function drawShip() {
+  // sombra (se encoge al despegar)
+  const lift = clamp((ship.baseY - ship.y) / 120, 0, 1);
+  ctx.globalAlpha = 0.45 * (1 - lift);
+  pxEllipse(ctx, ship.x, ship.baseY, 20 * (1 - lift * 0.6), 5 * (1 - lift * 0.6), '#000');
+  ctx.globalAlpha = 1;
+
+  ctx.save();
+  ctx.translate(Math.round(ship.x), Math.round(ship.y));
+  ctx.rotate(ship.tilt);
+
+  // Llama: parpadeo suave en la fase 3, llamarada en el despegue
+  if (G.state === 'launch' || (G.state === 'landing' && ship.y < ship.baseY - 1)) {
+    drawSprite(ctx, (G.time * 20 | 0) % 2 ? SPR.flame1 : SPR.flame2, -12, 0, 3);
+  } else if (G.phase === 3) {
+    drawSprite(ctx, (G.time * 12 | 0) % 2 ? SPR.flame1 : SPR.flame2, -4, 0, 1);
+  }
+
+  drawSprite(ctx, SPR.ship, -18, -52, 2);
+
+  // Luz de avería parpadeante (roja) o luz de sistema OK (verde)
+  const ok = G.phase >= 3;
+  if (ok || (G.time * 3 | 0) % 2) {
+    ctx.fillStyle = ok ? PAL.green : PAL.red;
+    ctx.fillRect(-1, -50, 2, 2);
+  }
+  ctx.restore();
+}
+
+function drawPlayer() {
+  pxEllipse(ctx, player.x, player.y, 5, 1.5, 'rgba(0,0,0,0.45)');
+  const stepping = player.moving && Math.floor(player.animT * 8) % 2 === 1;
+  const spr = stepping ? SPR.cowboyB : SPR.cowboyA;
+  const bob = stepping ? -1 : 0;
+  drawSprite(ctx, spr, player.x - 6, player.y - 16 + bob, 1, player.facing < 0);
+
+  // Indicador sobre la cabeza cuando está junto a la nave
+  if (G.nearShip && G.phase < 3) {
+    const y = player.y - 22 + Math.round(Math.sin(G.time * 5));
+    ctx.fillStyle = PAL.yellow;
+    ctx.fillRect(Math.round(player.x) - 1, y, 2, 3);
+    ctx.fillRect(Math.round(player.x) - 1, y + 4, 2, 1);
+  }
+}
+
+function drawParticles() {
+  for (const p of G.particles) {
+    ctx.globalAlpha = clamp(p.life / p.max, 0, 1);
+    if (p.spr) {                 // partícula con forma (nota musical)
+      drawSprite(ctx, p.spr, p.x, p.y, 1);
+    } else {
+      ctx.fillStyle = p.c;
+      ctx.fillRect(Math.round(p.x), Math.round(p.y), p.s, p.s);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* Radar en arco (0°-90°) sobre la nave, dibujado píxel a píxel. */
+function drawGauge() {
+  const g = G.gauge;
+  const px = ship.x - 22, py = ship.baseY - 64, R = 42;
+  const toXY = (deg, r) => {
+    const a = (deg * Math.PI) / 180;
+    return [Math.round(px + Math.cos(a) * r), Math.round(py - Math.sin(a) * r)];
+  };
+
+  // Placa de fondo (cuarto de círculo)
+  ctx.fillStyle = 'rgba(10,6,20,0.82)';
+  for (let dy = 0; dy <= R + 5; dy++) {
+    const w = Math.round(Math.sqrt((R + 5) * (R + 5) - dy * dy));
+    ctx.fillRect(px - 3, py - dy, w + 3, 1);
+  }
+  ctx.fillRect(px - 3, py, R + 8, 3);
+
+  // Arco exterior (sin zona marcada: el ángulo bueno hay que descubrirlo)
+  ctx.fillStyle = PAL.cyan;
+  for (let a = 0; a <= 90; a += 1) {
+    const [x, y] = toXY(a, R);
+    ctx.fillRect(x - 1, y - 1, 2, 2);
+  }
+  // Marcas cada 15°
+  ctx.fillStyle = PAL.cyanDark;
+  for (let a = 0; a <= 90; a += 15) {
+    for (let r = R - 6; r < R - 1; r++) { const [x, y] = toXY(a, r); ctx.fillRect(x, y, 1, 1); }
+  }
+
+  // Aguja (con sombra): cian mientras corre la simulación
+  const ang = g.angle;
+  const needleCol = G.sim ? PAL.cyan : g.locked ? PAL.green : PAL.magenta;
+  for (let r = 0; r < R - 3; r += 0.5) {
+    const [x, y] = toXY(ang, r);
+    ctx.fillStyle = PAL.outline;
+    ctx.fillRect(x + 1, y + 1, 1, 1);
+    ctx.fillStyle = needleCol;
+    ctx.fillRect(x, y, 1, 1);
+  }
+  ctx.fillStyle = PAL.yellow;
+  ctx.fillRect(Math.round(px) - 2, Math.round(py) - 2, 4, 4);
+
+  // Etiquetas
+  ctx.font = fontStr(6);
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = PAL.cyan;
+  ctx.fillText('0°', px + R + 3, py - 2);
+  ctx.textAlign = 'center';
+  ctx.fillText('90°', px, py - R - 6);
+
+  // Lectura digital
+  ctx.font = fontStr(8);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = PAL.outline;
+  ctx.fillText(`θ = ${Math.round(ang)}°`, ship.x + 0.7, py - R - 17 + 0.7);
+  ctx.fillStyle = g.locked && !G.sim ? PAL.green : PAL.yellow;
+  ctx.fillText(`θ = ${Math.round(ang)}°`, ship.x, py - R - 17);
+}
+
+/* --- Interfaz (coordenadas de pantalla) ----------------------------- */
+function fontStr(px, bold = true) { return `${bold ? 'bold ' : ''}${px}px ${FONT}`; }
+
+function wrapText(str, maxW) {
+  const words = str.split(' ');
+  const lines = [];
+  let cur = '';
+  for (const w of words) {
+    const test = cur ? cur + ' ' + w : w;
+    if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = w; }
+    else cur = test;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+/* Marco de panel pixelado con borde de neón y remaches de óxido. */
+function drawPanel(x, y, w, h, border) {
+  const b = Math.max(2, Math.round(2 * ui));
+  ctx.fillStyle = 'rgba(12,7,22,0.9)';
+  ctx.fillRect(x + b, y + b, w - 2 * b, h - 2 * b);
+  ctx.fillStyle = border;
+  ctx.fillRect(x + b, y, w - 2 * b, b);
+  ctx.fillRect(x + b, y + h - b, w - 2 * b, b);
+  ctx.fillRect(x, y + b, b, h - 2 * b);
+  ctx.fillRect(x + w - b, y + b, b, h - 2 * b);
+  ctx.fillStyle = PAL.rust;
+  ctx.fillRect(x + b * 2, y + b * 2, b, b);
+  ctx.fillRect(x + w - b * 3, y + b * 2, b, b);
+  ctx.fillRect(x + b * 2, y + h - b * 3, b, b);
+  ctx.fillRect(x + w - b * 3, y + h - b * 3, b, b);
+}
+
+/* Mini sistema de maquetación de paneles.
+   rows: {t:'text', s, c, f, align} | {t:'gap', h} | {t:'custom', h, draw(x, y, w)}
+   Con measureOnly=true solo calcula la altura. Devuelve la altura total. */
+function layoutPanel(x, y, w, rows, border, measureOnly = false) {
+  const pad = Math.round(9 * ui);
+  const inner = w - 2 * pad;
+  const ops = [];
+  let h = pad;
+  for (const r of rows) {
+    if (r.t === 'text') {
+      ctx.font = fontStr(r.f);
+      for (const line of wrapText(r.s, inner)) {
+        ops.push({ ...r, s: line, y: h });
+        h += Math.round(r.f * 1.3);
+      }
+    } else if (r.t === 'gap') {
+      h += r.h;
+    } else if (r.t === 'custom') {
+      ops.push({ ...r, y: h });
+      h += r.h;
+    }
+  }
+  h += pad;
+  if (measureOnly) return h;
+
+  drawPanel(x, y, w, h, border);
+  ctx.textBaseline = 'top';
+  for (const op of ops) {
+    if (op.t === 'text') {
+      ctx.font = fontStr(op.f);
+      ctx.textAlign = op.align || 'left';
+      const tx = op.align === 'center' ? x + w / 2 : x + pad;
+      const off = Math.max(1, Math.round(op.f / 12));
+      ctx.fillStyle = PAL.outline;
+      ctx.fillText(op.s, tx + off, y + op.y + off);
+      ctx.fillStyle = op.c;
+      ctx.fillText(op.s, tx, y + op.y);
+    } else {
+      op.draw(x + pad, y + op.y, inner);
+    }
+  }
+  return h;
+}
+
+/* Fila de iconos (sprites) que se reparte en varias líneas si no cabe. */
+function iconRows(sprites, s) {
+  const cellW = 10 * s, cellH = 11 * s;
+  return {
+    t: 'custom',
+    h: 0,
+    measure(inner) {
+      const per = Math.max(1, Math.floor(inner / cellW));
+      this.h = Math.max(1, Math.ceil(sprites.length / per)) * cellH;
+      return this;
+    },
+    draw(x, y, inner) {
+      const per = Math.max(1, Math.floor(inner / cellW));
+      sprites.forEach((spr, i) => {
+        const cx = x + (i % per) * cellW, cy = y + Math.floor(i / per) * cellH;
+        drawSprite(ctx, spr, cx + (cellW - spr.w * s) / 2, cy + (cellH - spr.h * s) - s, s);
+      });
+    }
+  };
+}
+
+/* Barra de progreso en bloques (estilo 8 bits). frac = 0..1 */
+function segBar(frac, segs, color) {
+  return {
+    t: 'custom', h: Math.round(14 * ui),
+    draw(x, y, w) {
+      const bw = w / segs, bh = Math.round(8 * ui), gap = Math.max(1, Math.round(2 * ui));
+      for (let i = 0; i < segs; i++) {
+        ctx.fillStyle = i < Math.round(frac * segs) ? color : PAL.metalDark;
+        ctx.fillRect(Math.round(x + i * bw), y + gap, Math.ceil(bw) - gap, bh);
+      }
+    }
+  };
+}
+
+/* Barra de pH 0-14 con colores de indicador universal. */
+const PH_COLORS = ['#ff2a2a', '#ff4a2a', '#ff7a2a', '#ffa62a', '#ffd23e', '#e8ef3e', '#b4f03e', '#7dff6a',
+  '#3ef0a0', '#3ed8ff', '#3ea0ff', '#4a6aff', '#6a4aff', '#8a3eff', '#a03ee0'];
+function phBar(ph) {
+  return {
+    t: 'custom', h: Math.round(20 * ui),
+    draw(x, y, w) {
+      const segW = w / 15, bh = Math.round(9 * ui);
+      PH_COLORS.forEach((c, i) => {
+        ctx.fillStyle = c;
+        ctx.fillRect(Math.round(x + i * segW), y, Math.ceil(segW) - 1, bh);
+      });
+      const mx = Math.round(x + ((ph + 0.5) / 15) * w);
+      const t = Math.max(2, Math.round(3 * ui));
+      ctx.fillStyle = PAL.text;
+      ctx.fillRect(mx - t / 2, y - t, t, bh + t * 2);
+      ctx.fillRect(mx - t * 1.5, y + bh + t, t * 3, t);
+    }
+  };
+}
+
+function drawHUD() {
+  const m = Math.round(10 * ui);
+  const fs = Math.round(12 * ui), fsS = Math.round(10.5 * ui), fsT = Math.round(13 * ui);
+  const is = Math.max(2, Math.round(2 * ui));   // escala de iconos
+  const pw = Math.round(Math.min((W - 3 * m) / 2, 260 * ui));
+  const inner = pw - 2 * Math.round(9 * ui);
+  let topBottom = m;
+
+  // ---- Mochila (arriba a la izquierda) ----
+  if (G.phase === 1 || G.phase === 2) {
+    const rows = [{ t: 'text', s: 'MOCHILA', c: PAL.cyan, f: fsT }];
+    if (G.phase === 1) {
+      const sum = loadOf();
+      if (G.inventory.length) rows.push(iconRows(G.inventory.map(itemSprite), is).measure(inner));
+      else rows.push({ t: 'text', s: '(vacía)', c: PAL.metal, f: fsS });
+      // Solo el peso actual: el límite (1 kg) se descubre al sobrecargarse
+      rows.push({ t: 'text', s: `Carga: ${sum} g`, c: PAL.text, f: fsS });
+    } else {
+      if (G.minerals) rows.push(iconRows(Array(G.minerals).fill(SPR.mineral), is).measure(inner));
+      else rows.push({ t: 'text', s: '(vacía)', c: PAL.metal, f: fsS });
+      rows.push({ t: 'text', s: `Minerales alcalinos: ${G.minerals}`, c: PAL.green, f: fsS });
+    }
+    topBottom = Math.max(topBottom, m + layoutPanel(m, m, pw, rows, PAL.cyan));
+  }
+
+  // ---- Estado de la nave (arriba a la derecha) ----
+  {
+    const names = ['RECONOCIMIENTO', 'FASE 1/3', 'FASE 2/3', 'FASE 3/3', 'PLANETA JVC-028'];
+    const sub = ['Nave averiada', 'Carga logística', 'Purga de corrosión', 'Despegue de emergencia', ''];
+    const rows = [{ t: 'text', s: names[G.phase], c: PAL.yellow, f: fsT }];
+    if (sub[G.phase]) rows.push({ t: 'text', s: sub[G.phase], c: PAL.rustLight, f: fsS });
+    if (G.phase === 0) rows.push({ t: 'text', s: 'Meta: llegar a la nave', c: PAL.text, f: fsS });
+    if (G.phase === 1) {
+      // Progreso de los tanques (bloques de 250 g y de 500 ml)
+      rows.push({ t: 'text', s: `Combustible: ${fmt(G.fuelIn / 1000)} / 2,50 kg`, c: G.fuelIn === FUEL_NEEDED_G ? PAL.green : PAL.text, f: fsS });
+      rows.push(segBar(G.fuelIn / FUEL_NEEDED_G, 10, G.fuelIn === FUEL_NEEDED_G ? PAL.green : PAL.magenta));
+      rows.push({ t: 'text', s: `Refrigerante: ${fmt(G.coolIn / 1000, 1)} / 1,5 L`, c: G.coolIn === COOLANT_NEEDED_ML ? PAL.green : PAL.text, f: fsS });
+      rows.push(segBar(G.coolIn / COOLANT_NEEDED_ML, 3, G.coolIn === COOLANT_NEEDED_ML ? PAL.green : PAL.coolant));
+    }
+    if (G.phase === 2) {
+      rows.push({ t: 'gap', h: Math.round(5 * ui) });
+      rows.push(phBar(G.ph));
+      rows.push({ t: 'text', s: `pH motor: ${fmt(G.ph)} → 7,00`, c: G.ph === PH_TARGET ? PAL.green : G.ph > PH_TARGET ? PAL.red : PAL.text, f: fsS });
+    }
+    if (G.phase === 3) {
+      rows.push({ t: 'text', s: 'Piloto a bordo', c: PAL.text, f: fsS });
+      // Bitácora de intentos: la materia prima para deducir el mejor ángulo
+      if (G.gauge.shots.length) rows.push({ t: 'text', s: 'Bitácora de disparos:', c: PAL.cyan, f: fsS });
+      for (const sh of G.gauge.shots.slice(-4)) {
+        rows.push({ t: 'text', s: `${Math.round(sh.angle)}° → ${sh.pct}%`, c: sh.pct >= 100 ? PAL.green : PAL.metalLight, f: fsS });
+      }
+    }
+    if (G.phase === 4) {
+      const crew = cat.active ? 'Tripulación: vaquero + gatito' : 'Explora libremente';
+      rows.push({ t: 'text', s: crew, c: PAL.text, f: fsS });
+      if (EPI.sleeper.read) rows.push({ t: 'text', s: 'Copiloto: en hibernación', c: PAL.ice, f: fsS });
+      rows.push(G.fiesta
+        ? { t: 'text', s: '¡Armonía planetaria alcanzada! Feliz cumpleaños', c: PAL.yellow, f: fsS }
+        : { t: 'text', s: `Flores que cantaron: ${G.flowersPlayed}/${FLOWER_GOAL}`, c: PAL2.glowP, f: fsS });
+      rows.push({ t: 'text', s: `Árboles: ${EPI.trees.length}`, c: PAL2.glowC, f: fsS });
+      const fc = FLOWER_SCALE[G.nextFlower];
+      rows.push({ t: 'text', s: `Próxima flor: ${fc.name}`, c: fc.shades[0], f: fsS });   // sin revelar la nota
+    }
+    topBottom = Math.max(topBottom, m + layoutPanel(W - m - pw, m, pw, rows, PAL.magenta));
+  }
+
+  // ---- Terminal de la nave ----
+  // En vertical (móvil) hay espacio arriba; en horizontal o en la fase 3
+  // va abajo para no tapar al jugador ni al radar.
+  // Mientras corre la simulación holográfica, ella ocupa el lugar del manual.
+  const tRows = G.sim ? null : terminalRows(fs, fsS);
+  let joyH = G.touchUI && G.phase !== 3 ? joy.R * 2 + Math.round(30 * ui) : 0;
+  // Fase 4 en táctil: los avisos van por encima de los botones HTML de siembra
+  if (G.touchUI && G.phase === 4 && seedUI.visible) {
+    joyH = Math.max(joyH, Math.round((seedUI.bottom + hudSiembra.offsetHeight + 10) * dpr) - m);
+  }
+  let toastAnchor = H - m - joyH;
+  let asstIcon = null;   // posición (px CSS) del botón "bitácora" cuando el panel está plegado
+  let asstClose = null;  // posición (px CSS) del botón [X] cuando el panel está fijado
+  if (tRows) {
+    // El mensaje se despliega ASST_SHOW segundos cada vez que cambia (o al tocar
+    // el ícono de bitácora) y después se pliega en un botón flotante.
+    // Excepción: las instrucciones de la fase 4 quedan FIJAS hasta pulsar [X] Cerrar.
+    const pinned = G.phase === 4 && !ASST.introClosed;
+    const sig = tRows.map(r => r.s || '').join('|');
+    if (sig !== ASST.sig) {
+      ASST.sig = sig;
+      ASST.shownAt = ASST.collapseNext ? -99 : G.time;   // tras cerrar con [X], el siguiente arranca plegado
+      ASST.collapseNext = false;
+    }
+    if (pinned) tRows.push({ t: 'gap', h: Math.round((ASST_X_H + 4) * dpr) });   // lugar para el botón [X]
+    const age = G.time - ASST.shownAt;
+    const bottomPlace = G.phase === 3 || W > H;
+    // Abajo, deja libres los costados: joystick (derecha) y botones de siembra (izquierda)
+    let left = m, right = m;
+    if (bottomPlace && G.touchUI && G.phase !== 3) {
+      right = W - (joy.x - joy.R) + m;
+      if (seedUI.visible) left = Math.round((hudSiembra.offsetWidth + 24) * dpr);
+    }
+    const avail = Math.max(W * 0.4, W - left - right);
+    const tw = Math.round(Math.min(avail, 560 * ui));
+    const tx = Math.round(Math.min(left + (avail - tw) / 2, W - m - tw));
+    const th = layoutPanel(tx, 0, tw, tRows, PAL.cyan, true);
+    const ty = bottomPlace ? H - m - th : topBottom + m;
+    if (pinned || age < ASST_SHOW) {
+      ctx.globalAlpha = pinned ? 1 : clamp((ASST_SHOW - age) / 0.4, 0, 1);   // se desvanece al plegarse
+      layoutPanel(tx, ty, tw, tRows, PAL.cyan);
+      ctx.globalAlpha = 1;
+      if (bottomPlace) toastAnchor = H - m - th - m;
+      if (pinned) asstClose = { left: (tx + tw) / dpr - 10, top: (ty + th) / dpr - 8 };   // esquina inferior derecha del panel
+    } else {
+      asstIcon = { left: tx / dpr, top: bottomPlace ? (H - m) / dpr - ASST_ICON : ty / dpr };
+    }
+  }
+  updateAsstButton(asstIcon);
+  updateAsstClose(asstClose);
+
+  if (G.phase === 3 && G.sim) drawSimPanel(topBottom);
+  drawShipArrow(topBottom);
+  if (!G.sim) drawToasts(toastAnchor);
+  drawBanner();
+  if (G.touchUI && G.phase !== 3) drawJoystick();
+}
+
+/* ASISTENTE DE NAVEGACIÓN: ayuda en lenguaje coloquial para cada fase.
+   Se muestra completo al empezar la fase y junto a la nave; el resto del
+   tiempo queda en una sola línea para no tapar el juego. */
+function terminalRows(fs, fsS) {
+  const head = s => ({ t: 'text', s: '> ASISTENTE DE NAVEGACIÓN · ' + s, c: PAL.cyan, f: fsS });
+  const line = (s, c = PAL.text) => ({ t: 'text', s, c, f: fs });
+  const gap = { t: 'gap', h: Math.round(4 * ui) };
+  const full = G.nearShip || G.time - G.phaseStart < 9;
+
+  if (G.phase === 0) {
+    return [{ t: 'text', s: '> SEÑAL DE SOCORRO DETECTADA', c: PAL.cyan, f: fsS }, line('Acércate a la nave estrellada para ver qué le pasa.')];
+  }
+  if (G.phase === 1) {
+    // Minimalista: el límite de la mochila y las conversiones se descubren al fallar
+    return [head('FASE 1'), line('La nave requiere 2.5 kg de combustible y 1.5 L de refrigerante', PAL.yellow)];
+  }
+  if (G.phase === 2) {
+    if (!full) return [head('FASE 2'), line(`pH del motor: ${fmt(G.ph)} → meta 7,00. Cada mineral: +1,25.`, PAL.yellow)];
+    return [
+      head('FASE 2: PURGA DE CORROSIÓN'),
+      line('El ácido corroe la nave (pH 2,0). Usa minerales alcalinos para neutralizarlo hasta pH 7,0. Cuidado con pasarte o el sistema abortará.'),
+      line('Cada mineral sube el pH +1,25. En la barra: rojo es ácido, verde es neutro y azul/morado es alcalino.'),
+      gap,
+      line(`pH actual: ${fmt(G.ph)} · Minerales en la mochila: ${G.minerals}`, PAL.yellow)
+    ];
+  }
+  if (G.phase === 3) {
+    return [
+      head('FASE 3: DESPEGUE'),
+      line('Hay que llegar a la zona segura. El motor siempre empuja igual: lo único que eliges es el ángulo de salida.'),
+      line(`${G.touchUI ? 'Toca la pantalla' : 'Pulsa ESPACIO (o haz clic)'} para fijar el ángulo. El simulador te muestra hasta dónde llegarías: prueba y compara.`, PAL.yellow)
+    ];
+  }
+  if (G.phase === 4) {
+    // Los controles de siembra viven en los botones HTML (#hud-siembra); aquí solo narrativa
+    if (!ASST.introClosed) {   // instrucciones fijas hasta pulsar [X] Cerrar
+      return [
+        head('PLANETA JVC-028'),
+        line('Explora el planeta. Toca la pantalla para disparar píxeles, siembra con los botones y busca a tu tripulación', PAL.yellow)
+      ];
+    }
+    const tip = !EPI.gift.opened ? 'Algo brilla en el centro del mapa...'
+      : !EPI.sleeper.read ? 'Tu tripulación crece... pero el planeta todavía guarda secretos.'   // sin delatar la baliza
+      : 'Toca la baliza otra vez si quieres releer el mensaje.';
+    return [head('PLANETA JVC-028'), line(tip, PAL.yellow)];
+  }
+  return null;
+}
+
+/* Simulación holográfica de la fase 3: parábola del disparo, zona segura
+   (100 % de la distancia necesaria) y marcas de los intentos anteriores. */
+function drawSimPanel(topY) {
+  const s = G.sim;
+  const age = G.time - s.t0;
+  const m = Math.round(10 * ui);
+  const pad = Math.round(9 * ui);
+  const fs = Math.round(11 * ui);
+  const lh = Math.round(fs * 1.4);
+  const pw = Math.round(Math.min(W - 2 * m, 460 * ui));
+  const innerW = pw - 2 * pad;
+  const D = Math.round(Math.min(innerW * 0.78, (H * 0.26) / 0.55));   // distancia necesaria (px)
+  const chartH = Math.round(D * 0.55 + 16 * ui);
+  const ph = pad + lh + chartH + lh + pad;
+  const x = Math.round((W - pw) / 2);
+  const y = Math.round(clamp(H * 0.45 - ph / 2, topY + m, Math.max(topY + m, H - ph - m)));
+  const total = SIM_FLIGHT + SIM_HOLD;
+  const alpha = s.ok ? clamp(age * 5, 0, 1) : clamp(Math.min(age * 5, (total - age) * 4), 0, 1);
+  ctx.globalAlpha = alpha;
+
+  drawPanel(x, y, pw, ph, PAL.cyan);
+  ctx.font = fontStr(fs);
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = PAL.cyan;
+  ctx.fillText(`SIMULACIÓN HOLOGRÁFICA · θ = ${Math.round(s.angle)}°`, x + pad, y + pad);
+
+  const gx = x + pad + Math.round((innerW - D) * 0.35);   // plataforma de lanzamiento
+  const gy = y + pad + lh + chartH - Math.round(4 * ui);   // línea de suelo
+  const dot = Math.max(2, Math.round(2 * ui));
+  const u1 = Math.round(ui);
+
+  // Suelo punteado
+  ctx.fillStyle = PAL.cyanDark;
+  for (let i = x + pad; i < x + pw - pad; i += dot * 3) ctx.fillRect(i, gy, dot * 2, dot);
+  // Plataforma
+  ctx.fillStyle = PAL.rust;
+  ctx.fillRect(gx - 4 * u1, gy - dot, 8 * u1, dot * 2);
+
+  // Zona segura: bandera
+  const u = clamp(age / SIM_FLIGHT, 0, 1);
+  const fx = gx + D;
+  ctx.fillStyle = s.ok && u >= 1 ? PAL.green : PAL.yellow;
+  ctx.fillRect(fx - Math.floor(dot / 2), gy - 14 * u1, dot, 14 * u1);
+  ctx.fillRect(fx, gy - 14 * u1, 8 * u1, 5 * u1);
+  ctx.fillRect(fx - 6 * u1, gy + dot, 12 * u1, dot);
+  ctx.font = fontStr(Math.round(9 * ui));
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('META', fx, gy - 16 * u1);
+
+  // Intentos anteriores: dónde cayeron
+  ctx.font = fontStr(Math.round(8 * ui));
+  for (const sh of G.gauge.shots.slice(0, -1)) {
+    const lx = Math.round(gx + (D * sh.pct) / 100);
+    ctx.fillStyle = PAL.magentaDark;
+    ctx.fillRect(lx - Math.floor(dot / 2), gy - dot * 2, dot, dot * 3);
+    ctx.fillStyle = PAL.magenta;
+    ctx.fillText(`${Math.round(sh.angle)}°`, lx, gy - dot * 2 - u1);
+  }
+
+  // Trayectoria actual: alcance r = D·(pct/100), altura máxima h = D·sen²θ / 2
+  const a = (s.angle * Math.PI) / 180;
+  const r = (D * s.pct) / 100;
+  const h = (D * Math.sin(a) ** 2) / 2;
+  ctx.fillStyle = PAL.cyan;
+  for (let v = 0; v <= u; v += 0.03) {
+    ctx.fillRect(Math.round(gx + r * v - dot / 2), Math.round(gy - 4 * h * v * (1 - v) - dot / 2), dot, dot);
+  }
+  if (u < 1) {
+    // Cohete fantasma orientado según la dirección de vuelo
+    const px = gx + r * u, py = gy - 4 * h * u * (1 - u);
+    const sc = Math.max(1, Math.round(0.8 * ui));
+    ctx.save();
+    ctx.translate(Math.round(px), Math.round(py));
+    ctx.rotate(Math.atan2(r, 4 * h * (1 - 2 * u)));
+    ctx.globalAlpha = alpha * (0.55 + 0.3 * Math.sin(G.time * 40));
+    drawSprite(ctx, SPR.shipHolo, -9 * sc, -13 * sc, sc);
+    ctx.restore();
+    ctx.globalAlpha = alpha;
+  } else {
+    // Punto de impacto
+    const ix = Math.round(gx + r);
+    ctx.fillStyle = s.ok ? PAL.green : PAL.red;
+    ctx.fillRect(ix - dot * 2, gy - dot, dot * 4, dot);
+    ctx.fillRect(ix - Math.floor(dot / 2), gy - dot * 3, dot, dot * 3);
+  }
+
+  // Resultado
+  let msg = 'Calculando trayectoria...', col = PAL.cyan;
+  if (u >= 1) {
+    msg = s.ok ? '¡Alcance: 100% de la distancia necesaria!' : `Alcance insuficiente: ${s.pct}% de la distancia necesaria`;
+    col = s.ok ? PAL.green : PAL.red;
+  }
+  ctx.font = fontStr(fs);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  const ty = y + pad + lh + chartH + Math.round(3 * ui);
+  ctx.fillStyle = PAL.outline;
+  ctx.fillText(msg, x + pw / 2 + 1, ty + 1);
+  ctx.fillStyle = col;
+  ctx.fillText(msg, x + pw / 2, ty);
+  ctx.globalAlpha = 1;
+}
+
+/* Mensajes emergentes apilados hacia arriba desde "anchorY". */
+function drawToasts(anchorY) {
+  const m = Math.round(10 * ui);
+  const w = Math.round(Math.min(W - 2 * m, 470 * ui));
+  const x = Math.round((W - w) / 2);
+  let y = anchorY;
+  for (let i = G.toasts.length - 1; i >= 0; i--) {
+    const t = G.toasts[i];
+    const age = G.time - t.t0;
+    const rows = [{ t: 'text', s: t.text, c: t.color, f: Math.round(12 * ui), align: 'center' }];
+    const h = layoutPanel(x, 0, w, rows, t.color, true);
+    y -= h;
+    ctx.globalAlpha = clamp(Math.min(age * 6, (t.dur - age) * 3), 0, 1);
+    layoutPanel(x, Math.round(y), w, rows, t.color);
+    ctx.globalAlpha = 1;
+    y -= Math.round(4 * ui);
+  }
+}
+
+/* Flecha en el borde de la pantalla que apunta a la nave (o al regalo en
+   el epílogo) si no se ve. */
+function drawShipArrow(topLimit = 0) {
+  let wx, wy, label;
+  if (G.phase < 3) { wx = ship.x; wy = ship.baseY - 25; label = 'NAVE'; }
+  else if (G.phase === 4 && !EPI.gift.opened) { wx = EPI.gift.x; wy = EPI.gift.y - 16; label = 'REGALO'; }
+  // (sin flecha a la baliza: la nave dormida se descubre explorando)
+  else return;
+  const sx = (wx - cam.x) * zoom, sy = (wy - cam.y) * zoom;
+  const mg = 40 * ui;
+  if (sx > mg && sx < W - mg && sy > mg && sy < H - mg) return;
+  const cx = W / 2, cy = H / 2;
+  const a = Math.atan2(sy - cy, sx - cx);
+  const k = Math.min((W / 2 - mg) / Math.abs(Math.cos(a) || 1e-6), (H / 2 - mg) / Math.abs(Math.sin(a) || 1e-6));
+  const ax = cx + Math.cos(a) * k;
+  const ay = Math.max(cy + Math.sin(a) * k, topLimit + 30 * ui);   // no tapar los paneles de arriba
+  const s = Math.max(2, Math.round(2 * ui));
+  ctx.save();
+  ctx.translate(Math.round(ax), Math.round(ay));
+  ctx.rotate(a);
+  ctx.fillStyle = (G.time * 3 | 0) % 2 ? PAL.cyan : PAL.yellow;
+  for (let i = 0; i < 6; i++) ctx.fillRect((i - 6) * s, -(6 - i) * s, s, (6 - i) * 2 * s);   // triángulo pixelado
+  ctx.restore();
+  ctx.font = fontStr(Math.round(10 * ui));
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = PAL.cyan;
+  ctx.fillText(label, Math.round(ax - Math.cos(a) * 26 * ui), Math.round(ay - Math.sin(a) * 26 * ui));
+}
+
+function drawJoystick() {
+  ctx.globalAlpha = joy.active ? 0.9 : 0.55;
+  ctx.fillStyle = 'rgba(12,7,22,0.6)';
+  ctx.beginPath();
+  ctx.arc(joy.x, joy.y, joy.R, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.lineWidth = Math.max(2, 2 * ui);
+  ctx.strokeStyle = PAL.cyan;
+  ctx.stroke();
+  // cruceta pixelada
+  const t = Math.max(2, Math.round(2 * ui));
+  ctx.fillStyle = PAL.cyanDark;
+  ctx.fillRect(joy.x - joy.R * 0.7, joy.y - t / 2, joy.R * 1.4, t);
+  ctx.fillRect(joy.x - t / 2, joy.y - joy.R * 0.7, t, joy.R * 1.4);
+  // pomo
+  let kx = joy.kx, ky = joy.ky;
+  const l = Math.hypot(kx, ky);
+  if (l > joy.R) { kx = (kx / l) * joy.R; ky = (ky / l) * joy.R; }
+  ctx.fillStyle = PAL.magenta;
+  ctx.beginPath();
+  ctx.arc(joy.x + kx, joy.y + ky, joy.R * 0.42, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = PAL.magentaDark;
+  ctx.fillRect(joy.x + kx - joy.R * 0.15, joy.y + ky - joy.R * 0.15, joy.R * 0.3, joy.R * 0.3);
+  ctx.globalAlpha = 1;
+}
+
+function drawTitle() {
+  ctx.fillStyle = 'rgba(7,5,13,0.72)';
+  ctx.fillRect(0, 0, W, H);
+  const m = Math.round(14 * ui);
+  const w = Math.round(Math.min(W - 2 * m, 580 * ui));
+  const s = Math.max(3, Math.round(4 * ui));
+  const blink = Math.floor(G.time * 2) % 2 === 0;
+  const rows = [
+    {
+      t: 'custom', h: 17 * s,
+      draw(x, y, iw) {
+        const fr = Math.floor(G.time * 3) % 2 ? SPR.cowboyA : SPR.cowboyB;
+        drawSprite(ctx, fr, x + iw / 2 - 6 * s - 10 * s, y, s);
+        drawSprite(ctx, SPR.fuel500, x + iw / 2 + 4 * s, y + 7 * s, s);
+        drawSprite(ctx, SPR.mineral, x + iw / 2 + 13 * s, y + 7 * s, s);
+      }
+    },
+    { t: 'gap', h: Math.round(6 * ui) },
+    { t: 'text', s: 'VARADO EN KEPLER-7', c: PAL.magenta, f: Math.round(26 * ui), align: 'center' },
+    { t: 'text', s: 'Un vaquero espacial, una nave rota y 3 problemas para resolver... varado en Kepler 7.', c: PAL.text, f: Math.round(12 * ui), align: 'center' },
+    { t: 'gap', h: Math.round(8 * ui) },
+    { t: 'text', s: G.touchUI ? 'Muévete con el joystick (abajo a la izquierda) o mantén el dedo donde quieras ir.' : 'Muévete con WASD o las flechas. Espacio para la fase final.', c: PAL.cyan, f: Math.round(11 * ui), align: 'center' },
+    { t: 'gap', h: Math.round(8 * ui) },
+    { t: 'text', s: G.touchUI ? '[ TOCA PARA EMPEZAR ]' : '[ PULSA UNA TECLA PARA EMPEZAR ]', c: blink ? PAL.yellow : PAL.yellowDark, f: Math.round(13 * ui), align: 'center' }
+  ];
+  const h = layoutPanel(0, 0, w, rows, PAL.magenta, true);
+  layoutPanel(Math.round((W - w) / 2), Math.round((H - h) / 2), w, rows, PAL.magenta);
+}
+
+/* =====================================================================
+   FASE 4: EPÍLOGO JUGABLE · PLANETA JVC-028 (sandbox musical)
+   Tras el despegue: fundido a blanco, nuevo planeta bioluminiscente,
+   exploración libre, siembra de árboles (E) y flores musicales (F),
+   fuegos artificiales (clic/toque), la caja de regalo (carta en el
+   DOM) y un gatito espacial que sigue al vaquero.
+   ===================================================================== */
+
+// Paleta del nuevo planeta: violetas profundos con brillos cian y rosa
+const PAL2 = {
+  ground: '#1a1033', ground2: '#21143f', ground3: '#140c28', ground4: '#2a1a52',
+  moss: '#24205a', moss2: '#2c2a6e', vein: '#2f2a7a',
+  pond: '#173a5e', pondLight: '#3ef0ff',
+  glowC: '#3ee8d0', glowP: '#ff6ad5', glowW: '#e8f4ff',
+  trunk: '#6a3a8a', trunkDark: '#3d2050', grass: '#2f6a8a'
+};
+
+/* --- Sprites del epílogo (matrices, igual que el resto) ------------- */
+
+// Árbol alienígena de copa luminosa (dos variantes de color, misma matriz)
+const TREE_ROWS = [
+  '.....OOOOOO.....',
+  '...OOCCCCCCOO...',
+  '..OCCcCCCCCCCO..',
+  '.OCCCCCCCcCCCCO.',
+  '.OCcCCWCCCCCCCO.',
+  'OCCCCCCCCCCCcCCO',
+  'OCCCCCCCCCCCCCCO',
+  '.OCCCcCCCCCCCCO.',
+  '..OCCCCCCCcCCO..',
+  '...OOOCCCCOOO...',
+  '......OTTO......',
+  '......OTtO......',
+  '.....OTTtO......',
+  '.....OTTtO......',
+  '......OTTO......',
+  '......OTtO......',
+  '.....OTTTtO.....',
+  '....OTTOOTtO....',
+  '....OOO..OOO....'
+];
+// Copas: familia cian (v = 0) o rosa (v = 1), cada una con 3 tonos sutiles
+// que van rotando cuando un fuego artificial explota cerca: [claro, oscuro]
+const TREE_CANOPIES = [
+  [['#3ee8d0', '#1f9a9a'], ['#3ec8ff', '#1f6a9a'], ['#7affe8', '#2fa08a']],
+  [['#ff6ad5', '#a03a8a'], ['#ff8ab8', '#a04a6a'], ['#e06aff', '#8a3aa8']]
+];
+SPR.trees = TREE_CANOPIES.map(set => set.map(([C, c]) =>
+  makeSprite(TREE_ROWS, { O: PAL.outline, C, c, W: PAL2.glowW, T: PAL2.trunk, t: PAL2.trunkDark })));
+
+// Escala musical de las flores: el color define la nota.
+// Cada color tiene 3 tonos sutiles (los fuegos artificiales los rotan sin cambiar la nota).
+const FLOWER_SCALE = [
+  { name: 'Rojo', note: 'Do', freq: 523.25, shades: ['#ff4a4a', '#ff7a6a', '#e0306a'] },
+  { name: 'Naranja', note: 'Re', freq: 587.33, shades: ['#ff9a3e', '#ffb86a', '#ff7a2e'] },
+  { name: 'Amarillo', note: 'Mi', freq: 659.25, shades: ['#ffd23e', '#fff07a', '#ffb83e'] },
+  { name: 'Verde', note: 'Fa', freq: 698.46, shades: ['#7dff6a', '#b4ff9a', '#3ef0a0'] },
+  { name: 'Azul', note: 'Sol', freq: 783.99, shades: ['#3ea0ff', '#7ac8ff', '#6a6aff'] }
+];
+
+// Flor musical
+const FLOWER_ROWS = [
+  '..P.P..',
+  '.PPYPP.',
+  '..PPP..',
+  '...g...',
+  '.g.g...',
+  '..gg.g.',
+  '...gg..',
+  '...g...'
+];
+SPR.flowerSet = FLOWER_SCALE.map(fc => fc.shades.map(p => makeSprite(FLOWER_ROWS, { P: p, Y: '#ffffff', g: PAL.teal })));
+
+// Notita musical (partícula que sale de las flores), una por color
+const NOTE_ROWS = [
+  '..XX',
+  '..X.',
+  '..X.',
+  'XXX.',
+  'XX..'
+];
+SPR.notes = FLOWER_SCALE.map(fc => makeSprite(NOTE_ROWS, { X: fc.shades[1] }));
+
+// Caja de regalo: la tapa y la caja van separadas para poder abrirla
+const GIFT_MAP = { O: PAL.outline, R: PAL.magenta, r: PAL.magentaDark, L: '#9d84ff', l: '#6a52d8', B: '#7a5cff', b: '#4a34a8', W: '#ffffff' };
+SPR.giftLid = makeSprite([
+  '....RR....RR....',
+  '...R..R..R..R...',
+  '...R...RR...R...',
+  '....RRRRRRRR....',
+  '.OOOOOORROOOOOO.',
+  '.OLLLLLRRLLLLlO.',
+  '.OLWLLLRRLLLLlO.',
+  '.OOOOOORROOOOOO.'
+], GIFT_MAP);
+SPR.giftBox = makeSprite([
+  '..OBBBBRrBBBbO..',
+  '..OBWBBRrBBBbO..',
+  '..OBBBBRrBBBbO..',
+  '..OBBBBRrBBBbO..',
+  '..OBBBBRrBBBbO..',
+  '..OBBBBRrBBBbO..',
+  '..ObbbbRrbbbbO..',
+  '..OOOOOOOOOOOO..'
+], GIFT_MAP);
+
+// Gatito espacial: ojos cian, collar dorado y antenita (mira a la derecha)
+const CAT_MAP = { O: PAL.outline, F: '#e6dcf5', s: '#9a7ac8', e: PAL.cyan, p: PAL.magenta, c: PAL.yellow, A: PAL.cyan, Y: PAL.yellow };
+const CAT_TOP = [
+  '.........Y..',
+  '.......O.AO.',
+  '......OFOOFO',
+  '......OFFFFO',
+  'O.....OeFFeO',
+  'FO....OFFpFO',
+  '.FOOOOOcFFO.',
+  '.OFFFFFFFFO.',
+  '.OFsFFsFFFO.'
+];
+SPR.catA = makeSprite([...CAT_TOP, '..OFOOOOFO..', '..OO....OO..'], CAT_MAP);
+SPR.catB = makeSprite([...CAT_TOP, '.OFOOOOOOFO.', '.OO......OO.'], CAT_MAP);
+
+/* --- Suelo del Planeta JVC-028 (pre-renderizado, como el primero) - */
+const SPROUTS2 = [];
+function bakeGround2() {
+  const cv = document.createElement('canvas');
+  cv.width = WORLD_W;
+  cv.height = WORLD_H;
+  const g = cv.getContext('2d');
+  const R = mulberry32(2024);
+
+  g.fillStyle = PAL2.ground;
+  g.fillRect(0, 0, WORLD_W, WORLD_H);
+
+  // Manchas de musgo violeta
+  for (let i = 0; i < 30; i++) {
+    const rx = 25 + R() * 70;
+    pxEllipse(g, R() * WORLD_W, R() * WORLD_H, rx, rx * (0.3 + R() * 0.3), pick3(R, [PAL2.moss, PAL2.moss2, PAL2.ground2]));
+  }
+  // Textura
+  const noise = [PAL2.ground2, PAL2.ground3, PAL2.ground4, PAL2.moss];
+  for (let i = 0; i < 14000; i++) {
+    g.fillStyle = noise[(R() * noise.length) | 0];
+    g.fillRect((R() * WORLD_W) | 0, (R() * WORLD_H) | 0, 1, 1);
+  }
+  // Venas luminosas
+  for (let i = 0; i < 16; i++) {
+    let x = R() * WORLD_W, y = R() * WORLD_H, a = R() * Math.PI * 2;
+    g.fillStyle = R() < 0.3 ? '#1f5a7a' : PAL2.vein;
+    for (let s = 0; s < 50 + R() * 60; s++) {
+      a += (R() - 0.5) * 0.5;
+      x += Math.cos(a);
+      y += Math.sin(a);
+      g.fillRect(x | 0, y | 0, 1, 1);
+    }
+  }
+  // Lagunas brillantes
+  for (let i = 0; i < 6; i++) {
+    const x = R() * WORLD_W, y = R() * WORLD_H, r = 10 + R() * 16;
+    if (dist(x, y, EPI.gift.x, EPI.gift.y) < 70 || dist(x, y, EPI.shipPos.x, EPI.shipPos.y) < 60 ||
+        dist(x, y, EPI.sleeper.x, EPI.sleeper.y) < 70) continue;
+    pxEllipse(g, x, y + 1, r + 2, r * 0.45 + 1, '#2a1f5e');
+    pxEllipse(g, x, y, r, r * 0.45, PAL2.pond);
+    g.fillStyle = PAL2.pondLight;
+    for (let k = 0; k < 6; k++) g.fillRect((x + (R() - 0.5) * r * 1.2) | 0, (y + (R() - 0.5) * r * 0.5) | 0, 2, 1);
+  }
+  // Pasto y cristalitos
+  for (let i = 0; i < 320; i++) {
+    g.fillStyle = PAL2.grass;
+    const x = (R() * WORLD_W) | 0, y = (R() * WORLD_H) | 0;
+    g.fillRect(x, y, 1, 2);
+    g.fillRect(x + 2, y + 1, 1, 1);
+  }
+  for (let i = 0; i < 110; i++) {
+    const x = (R() * WORLD_W) | 0, y = (R() * WORLD_H) | 0;
+    g.fillStyle = R() < 0.5 ? PAL2.glowC : PAL2.glowP;
+    g.fillRect(x, y, 1, 1);
+    g.fillStyle = PAL2.ground3;
+    g.fillRect(x, y + 1, 1, 1);
+  }
+  // Círculo de piedras alrededor del regalo
+  for (let i = 0; i < 18; i++) {
+    const a = (i / 18) * Math.PI * 2;
+    drawSprite(g, SPR.rock, EPI.gift.x + Math.cos(a) * 62 - 4, EPI.gift.y + Math.sin(a) * 40 - 3, 1);
+  }
+  // Borde
+  g.fillStyle = PAL.outline;
+  g.fillRect(0, 0, WORLD_W, 4);
+  g.fillRect(0, WORLD_H - 4, WORLD_W, 4);
+  g.fillRect(0, 0, 4, WORLD_H);
+  g.fillRect(WORLD_W - 4, 0, 4, WORLD_H);
+
+  for (let i = 0; i < 90; i++) {
+    SPROUTS2.push({ x: (R() * WORLD_W) | 0, y: (R() * WORLD_H) | 0, p: R() * 6.28, c: [PAL2.glowC, PAL2.glowP, PAL2.glowW][(R() * 3) | 0] });
+  }
+  return cv;
+}
+function pick3(R, arr) { return arr[(R() * arr.length) | 0]; }
+
+// Nave en hibernación: la MISMA matriz de la nave principal, recoloreada apagada
+SPR.shipOff = makeSprite(SPR.ship.rows, {
+  O: PAL.outline, M: '#4a4a5a', m: '#2e2e3c', R: '#4a3a40', r: '#2e262c',
+  W: '#1e2a36', w: '#151d26', Y: '#4a4636', y: '#302e24', X: '#141016'
+});
+
+// Baliza (panel brillante frente a la nave dormida): pantalla encendida y apagada
+const BEACON_ROWS = [
+  '.OOOOOO.',
+  'OSSSSSSO',
+  'OSssssSO',
+  'OSSSSSSO',
+  '.OOOOOO.',
+  '...OO...',
+  '...MO...',
+  '...MO...',
+  '..OMMO..',
+  '.OOOOOO.'
+];
+SPR.beaconOn = makeSprite(BEACON_ROWS, { O: PAL.outline, S: PAL.cyan, s: '#c8fbff', M: PAL.metal });
+SPR.beaconAlt = makeSprite(BEACON_ROWS, { O: PAL.outline, S: PAL.magenta, s: '#ffd0ec', M: PAL.metal });
+SPR.beaconOff = makeSprite(BEACON_ROWS, { O: PAL.outline, S: '#2e3a46', s: '#3e4a56', M: PAL.metalDark });
+
+// "Z" de hibernación que flota sobre la nave dormida
+SPR.zzz = makeSprite(['XXX', '..X', '.X.', 'X..', 'XXX'], { X: PAL.ice });
+
+/* --- Distribución del mapa (con semilla: siempre igual) --------------- */
+const FLOWER_GOAL = 20;   // flores musicales originales del planeta
+const EPI = (() => {
+  const R = mulberry32(77);
+  const gift = { x: 360, y: 262, opened: false, wasNear: false, openT: -9 };
+  const shipPos = { x: 215, y: 372 };
+  // Nave en hibernación (arriba a la derecha) con su baliza delante
+  const sleeper = { x: 565, y: 150, bx: 565, by: 172, read: false, wasNear: false };
+  const trees = [], flowers = [];
+  const free = (x, y, d) => dist(x, y, gift.x, gift.y) > d && dist(x, y, shipPos.x, shipPos.y - 10) > 60 &&
+    dist(x, y, sleeper.x, sleeper.y - 10) > 62 && dist(x, y, sleeper.bx, sleeper.by) > 30;
+
+  // "Camino" de diseño de nivel entre la nave del jugador y la baliza del copiloto.
+  // Sigue la ruta que de verdad se camina: desde donde aparece el vaquero, recto
+  // hacia el frente de la caja (primer objetivo de la flecha) y de ahí a la baliza.
+  const spawn = { x: shipPos.x + 28, y: shipPos.y + 6 };
+  const toGift = Math.hypot(gift.x - spawn.x, gift.y - spawn.y);
+  const pathM = {   // punto justo antes del anillo de flores de la caja
+    x: gift.x - ((gift.x - spawn.x) / toGift) * 48,
+    y: gift.y - ((gift.y - spawn.y) / toGift) * 48
+  };
+  const pathG = { x: gift.x, y: gift.y + 23 };            // donde queda el vaquero al tocar la caja
+  const pathB = { x: sleeper.bx, y: sleeper.by + 14 };    // frente a la baliza
+  const segDist = (x, y, a, b) => {
+    const vx = b.x - a.x, vy = b.y - a.y;
+    const t = clamp(((x - a.x) * vx + (y - a.y) * vy) / (vx * vx + vy * vy), 0, 1);
+    return dist(x, y, a.x + vx * t, a.y + vy * t);
+  };
+  const distToPath = (x, y) => Math.min(segDist(x, y, spawn, pathM), segDist(x, y, pathG, pathB));
+
+  for (let tries = 0; trees.length < 24 && tries < 3000; tries++) {
+    const x = 30 + R() * (WORLD_W - 60), y = 50 + R() * (WORLD_H - 70);
+    if (!free(x, y, 85) || distToPath(x, y) < 26 || trees.some(t => dist(x, y, t.x, t.y) < 38)) continue;
+    trees.push({ x, y, v: R() < 0.5 ? 0 : 1, shade: 0, flashT: -9, plantT: -9 });
+  }
+  // Flores del camino (van primero en la lista, así suenan Do-Re-Mi-Fa-Sol en orden):
+  // 6 juntas al salir de la nave (se pisan "por accidente" camino al objetivo)
+  // y 3 más en el tramo final hacia la baliza.
+  const onSeg = (a, b, t) => ({ x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) });
+  [0.22, 0.36, 0.5, 0.64, 0.78, 0.92].forEach(t => flowers.push(onSeg(spawn, pathM, t)));
+  [0.4, 0.58, 0.76].forEach(t => flowers.push(onSeg(pathG, pathB, t)));
+  // Anillo de flores alrededor del regalo + flores sueltas
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    flowers.push({ x: gift.x + Math.cos(a) * 40, y: gift.y + Math.sin(a) * 26 });
+  }
+  // El resto, repartidas por el mapa (separadas para que haya que explorar)
+  for (let tries = 0; flowers.length < FLOWER_GOAL && tries < 4000; tries++) {
+    const x = 24 + R() * (WORLD_W - 48), y = 30 + R() * (WORLD_H - 44);
+    if (!free(x, y, 70) || distToPath(x, y) < 40 || trees.some(t => dist(x, y, t.x, t.y) < 14) || flowers.some(f => dist(x, y, f.x, f.y) < 45)) continue;
+    flowers.push({ x, y });
+  }
+  // c = índice en FLOWER_SCALE (color y nota); shade = tono sutil; orig = cuenta para el contador
+  flowers.forEach((f, i) => Object.assign(f, { c: i % FLOWER_SCALE.length, shade: 0, bounceT: -9, flashT: -9, touching: false, played: false, orig: true }));
+  return { gift, shipPos, sleeper, trees, flowers };
+})();
+const GROUND2 = bakeGround2();
+
+// La mascota: salta de la caja de regalo
+const cat = { active: false, x: 0, y: 0, facing: 1, moving: false, animT: 0, cheerT: -9 };
+
+// DOM de la carta
+const carta = document.getElementById('carta-regalo');
+const btnCanjear = document.getElementById('btn-canjear');
+document.getElementById('btn-cerrar').addEventListener('click', closeLetter);
+
+/* --- Transición: fundido a blanco -> nuevo planeta -> aterrizaje ------ */
+function startEpilogue() {
+  G.phase = 4;
+  G.state = 'landing';
+  G.landT = 0;
+  G.landed = false;
+  G.fade = 1;
+  G.busy = false;
+  G.items = [];
+  G.particles = [];
+  G.toasts = [];
+  G.fireworks = [];
+  G.sim = null;
+  G.shake = 0;
+  ship.x = EPI.shipPos.x;
+  ship.baseY = EPI.shipPos.y;
+  ship.y = ship.baseY - 220;      // la nave baja desde el cielo
+  ship.vy = 0;
+  ship.tilt = 0;
+  player.hidden = true;
+  player.x = ship.x + 28;
+  player.y = ship.baseY + 6;
+  player.facing = 1;
+  updateCamera(0, true);
+}
+
+function updateLanding(dt) {
+  G.landT += dt;
+  const t = G.landT;
+  G.fade = Math.max(0, 1 - t / 1.3);   // se aclara el blanco
+
+  const D = 2.4;                        // duración del descenso
+  if (t < D) {
+    const u = t / D;
+    ship.y = ship.baseY - 220 * (1 - u) * (1 - u);   // frena al acercarse al suelo
+    for (let i = 0; i < 3; i++) {
+      G.particles.push({
+        x: ship.x + rand(-5, 5), y: ship.y + 4, vx: rand(-12, 12), vy: rand(40, 90),
+        life: rand(0.3, 0.6), max: 0.6, c: pick([PAL.flameW, PAL.flameY, PAL.flameO, PAL.magenta]), s: pick([1, 2])
+      });
+    }
+  } else if (!G.landed) {
+    G.landed = true;
+    ship.y = ship.baseY;
+    G.shake = 1.5;
+    beep(110, 0.25, 'triangle', 0.08, 50);
+    for (let i = 0; i < 30; i++) {
+      const a = Math.random() * Math.PI * 2;
+      G.particles.push({ x: ship.x, y: ship.baseY, vx: Math.cos(a) * 50, vy: Math.sin(a) * 16, life: 0.8, max: 0.8, c: pick([PAL2.glowC, PAL2.glowP, PAL2.moss2]), s: 2 });
+    }
+  }
+  G.shake = Math.max(0, G.shake - dt * 3);
+
+  if (t > D + 0.7) {
+    // El vaquero baja de la nave: empieza la exploración
+    player.hidden = false;
+    burst(player.x, player.y - 8, 20, [PAL.cyan, PAL2.glowP, PAL.text], 35, 0.7);
+    G.state = 'play';
+    G.phaseStart = G.time;
+    SFX.success();
+    // Bienvenida festiva: cartel grande centrado + ráfaga de fuegos alrededor del vaquero
+    G.banner = { text: '¡Aterrizaje exitoso en JVC-028! 🥳', t0: G.time, dur: 4 };
+    landingSalvo();
+  }
+}
+
+/* Ráfaga de fuegos artificiales automáticos alrededor del jugador al aterrizar. */
+function landingSalvo() {
+  const N = 9;
+  for (let i = 0; i < N; i++) {
+    after(0.15 + i * 0.22, () => {
+      if (G.phase !== 4) return;
+      const a = (i / N) * Math.PI * 2 + rand(-0.3, 0.3), r = rand(35, 70);
+      makeFirework(player.x, player.y - 12, player.x + Math.cos(a) * r, player.y - 20 + Math.sin(a) * r * 0.7, true);
+    });
+  }
+}
+
+/* Cartel grande centrado (texto con brillo de colores); se desvanece solo. */
+function drawBanner() {
+  const b = G.banner;
+  if (!b) return;
+  const age = G.time - b.t0;
+  if (age > b.dur) { G.banner = null; return; }
+  const alpha = clamp(Math.min(age * 4, (b.dur - age) * 2.5), 0, 1);
+  const pop = age < 0.35 ? 0.6 + (age / 0.35) * 0.4 + Math.sin((age / 0.35) * Math.PI) * 0.12 : 1;
+  const fsz = Math.round(clamp(W / 18, 20 * ui, 34 * ui));
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(W / 2, H * 0.4);
+  ctx.scale(pop, pop);
+  ctx.font = fontStr(fsz);
+  const lines = wrapText(b.text, W * 0.86);
+  const lh = Math.round(fsz * 1.25);
+  const h = lines.length * lh;
+  // franja translúcida detrás
+  ctx.fillStyle = 'rgba(12,7,22,0.55)';
+  ctx.fillRect(-W / 2, -h / 2 - fsz * 0.5, W, h + fsz);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const grad = ctx.createLinearGradient(-W * 0.35, 0, W * 0.35, 0);
+  grad.addColorStop(0, PAL.magenta);
+  grad.addColorStop(0.5, PAL.yellow);
+  grad.addColorStop(1, PAL.cyan);
+  lines.forEach((ln, i) => {
+    const y = -h / 2 + lh * (i + 0.5) + Math.sin(G.time * 6 + i) * 2 * ui;
+    const o = Math.max(2, Math.round(fsz / 10));
+    ctx.fillStyle = PAL.outline;
+    ctx.fillText(ln, o, y + o);
+    ctx.fillStyle = PAL.magentaDark;
+    ctx.fillText(ln, -o / 2, y + o / 2);
+    ctx.fillStyle = grad;
+    ctx.fillText(ln, 0, y);
+  });
+  ctx.restore();
+}
+
+/* --- Update del epílogo ------------------------------------------------ */
+function updateEpilogue(dt) {
+  if (!G.paused) {
+    if (!G.fiestaOpen) updatePlayer(dt);   // con el cartel abierto los fuegos siguen, el vaquero espera
+    else drawCake();
+    // Obstáculos sólidos: nave, árboles y la caja
+    pushOut(ship.x, ship.baseY - 10, 20);
+    for (const t of EPI.trees) pushOut(t.x, t.y - 2, 7);
+    pushOut(EPI.gift.x, EPI.gift.y - 6, 17);
+    pushOut(EPI.sleeper.x, EPI.sleeper.y - 10, 20);
+    pushOut(EPI.sleeper.bx, EPI.sleeper.by, 5);
+    updateFlowers();
+    updateGift();
+    updateBeacon();
+    updateFiesta(dt);
+    updateFireworks(dt);
+  }
+  updateCat(dt);
+
+  // Zzz de la nave en hibernación (hasta que se lee la baliza)
+  if (!EPI.sleeper.read && Math.random() < 0.02) {
+    G.particles.push({ x: EPI.sleeper.x + rand(4, 10), y: EPI.sleeper.y - 46, vx: rand(2, 5), vy: -7, life: 2.2, max: 2.2, spr: SPR.zzz, s: 1 });
+  }
+
+  // Esporas luminosas flotando por el aire
+  if (Math.random() < 0.3) {
+    G.particles.push({
+      x: cam.x + Math.random() * (W / zoom), y: cam.y + Math.random() * (H / zoom),
+      vx: rand(-3, 3), vy: rand(-8, -3), life: rand(1.5, 3), max: 3, c: pick([PAL2.glowC, PAL2.glowP, PAL2.glowW]), s: 1
+    });
+  }
+  // Destellos alrededor del regalo mientras está cerrado
+  if (!EPI.gift.opened && Math.random() < 0.15) {
+    burst(EPI.gift.x + rand(-16, 16), EPI.gift.y - rand(8, 34), 1, [PAL.yellow, PAL.text], 10, 0.6);
+  }
+}
+
+/* Empuja al jugador fuera de un círculo (colisión simple). */
+function pushOut(cx, cy, r) {
+  const d = dist(player.x, player.y, cx, cy);
+  if (d < r) {
+    const a = d > 0.001 ? Math.atan2(player.y - cy, player.x - cx) : Math.PI / 2;
+    player.x = cx + Math.cos(a) * r;
+    player.y = cy + Math.sin(a) * r;
+  }
+}
+
+/* Toca la nota de una flor y suelta una notita musical. */
+function playFlower(f) {
+  const fc = FLOWER_SCALE[f.c];
+  beep(fc.freq, 0.22, 'triangle', 0.05);
+  beep(fc.freq * 2, 0.14, 'sine', 0.018, null, 0.05);   // brillo una octava arriba
+  f.bounceT = G.time;
+  burst(f.x, f.y - 6, 5, [fc.shades[f.shade], '#ffffff'], 25, 0.5);
+  G.particles.push({ x: f.x - 2, y: f.y - 14, vx: rand(-6, 6), vy: -22, life: 1.1, max: 1.1, spr: SPR.notes[f.c], s: 1 });
+}
+
+/* Flores: al pisarlas suenan (su color define la nota) y dan un saltito. */
+function updateFlowers() {
+  for (const f of EPI.flowers) {
+    const touching = dist(player.x, player.y, f.x, f.y) < 7;
+    if (touching && !f.touching) {
+      playFlower(f);
+      // Solo las 20 flores originales cuentan para el contador
+      if (f.orig && !f.played) {
+        f.played = true;
+        G.flowersPlayed++;
+        if (G.flowersPlayed === FLOWER_GOAL && !G.fiesta) startFiesta();
+      }
+    }
+    f.touching = touching;
+  }
+}
+
+/* --- Siembra (teclas E / F o botones en pantalla) --------------------- */
+const MAX_TREES = 90, MAX_FLOWERS = 220;
+
+// ¿Hay lugar para sembrar en (x, y)? r* = distancias mínimas
+function canPlant(x, y, rTree, rFlower, rObj) {
+  if (x < 14 || x > WORLD_W - 14 || y < 44 || y > WORLD_H - 8) return false;
+  if (dist(x, y, EPI.gift.x, EPI.gift.y - 6) < rObj + 12) return false;
+  if (dist(x, y, ship.x, ship.baseY - 10) < rObj + 8) return false;
+  if (dist(x, y, EPI.sleeper.x, EPI.sleeper.y - 10) < rObj + 8) return false;
+  if (dist(x, y, EPI.sleeper.bx, EPI.sleeper.by) < rObj + 6) return false;
+  if (EPI.trees.some(t => dist(x, y, t.x, t.y) < rTree)) return false;
+  if (EPI.flowers.some(f => dist(x, y, f.x, f.y) < rFlower)) return false;
+  return true;
+}
+
+function soilSound() {
+  beep(140, 0.12, 'triangle', 0.06, 60);
+  beep(90, 0.16, 'square', 0.025, 45, 0.04);
+}
+function noRoom(msg) {
+  beep(200, 0.12, 'triangle', 0.04, 150);
+  toast(msg, PAL.metalLight, 1.6);
+}
+
+function plantTree() {
+  if (G.paused || G.state !== 'play' || G.phase !== 4) return;
+  flashSeedButton(btnArbol);
+  if (EPI.trees.length >= MAX_TREES) { noRoom('Ya hay un bosque entero: no caben más árboles.'); return; }
+  const x = player.x + player.facing * 16, y = player.y + 1;   // delante del vaquero
+  if (!canPlant(x, y, 16, 6, 22)) { noRoom('No hay espacio para un árbol aquí.'); return; }
+  EPI.trees.push({ x, y, v: Math.random() < 0.5 ? 0 : 1, shade: 0, flashT: -9, plantT: G.time });
+  soilSound();
+  burst(x, y - 2, 14, [PAL2.moss2, PAL2.trunk, PAL2.glowC], 30, 0.6);
+}
+
+function plantFlower() {
+  if (G.paused || G.state !== 'play' || G.phase !== 4) return;
+  flashSeedButton(btnFlor);
+  if (EPI.flowers.length >= MAX_FLOWERS) { noRoom('El jardín está lleno de flores.'); return; }
+  const x = player.x, y = player.y + 2;                        // a los pies del vaquero
+  if (!canPlant(x, y, 9, 6, 12)) { noRoom('Muy pegada a otra planta: muévete un poco.'); return; }
+  const c = G.nextFlower;
+  G.nextFlower = (c + 1) % FLOWER_SCALE.length;                 // orden Do-Re-Mi-Fa-Sol
+  // touching = true: no suena hasta que el vaquero salga y vuelva a pisarla
+  const f = { x, y, c, shade: 0, bounceT: -9, flashT: -9, touching: true, played: false };
+  EPI.flowers.push(f);
+  soilSound();
+  playFlower(f);   // anticipo de su nota
+}
+
+/* --- Fuegos artificiales (clic / toque / Espacio) --------------------- */
+const FW_FLOWER_RADIUS = 45;   // alcance del estallido sobre las flores
+const FW_COLORS = [PAL.red, PAL.flameO, PAL.yellow, PAL.green, PAL.cyan, PAL.magenta, '#ffffff', '#8a9aff'];
+
+/* Crea un proyectil de (sx, sy) a (tx, ty). auto = lanzado por la Fiesta Planetaria. */
+function makeFirework(sx, sy, tx, ty, auto) {
+  tx = clamp(tx, 6, WORLD_W - 6);
+  ty = clamp(ty, 6, WORLD_H - 6);
+  const d = Math.max(1, dist(sx, sy, tx, ty)), speed = auto ? 150 : 230;
+  const c1 = pick(FW_COLORS);
+  let c2 = pick(FW_COLORS);
+  if (c2 === c1) c2 = '#ffffff';
+  G.fireworks.push({ x: sx, y: sy, tx, ty, vx: ((tx - sx) / d) * speed, vy: ((ty - sy) / d) * speed, left: d / speed, cols: [c1, c2], auto });
+  beep(500, 0.3, 'sine', auto ? 0.012 : 0.025, 1500);   // silbido de salida
+}
+
+function launchFirework(tx, ty) {
+  if (G.paused || G.state !== 'play' || G.phase !== 4) return;
+  if (G.time < G.fwReadyAt || G.fireworks.filter(fw => !fw.auto).length >= 8) return;
+  G.fwReadyAt = G.time + 0.18;
+  makeFirework(player.x, player.y - 12, tx, ty, false);
+  if (tx < player.x - 2) player.facing = -1;
+  if (tx > player.x + 2) player.facing = 1;
+}
+
+/* --- Easter egg: FIESTA PLANETARIA (las 20 flores cantaron) ---------- */
+function startFiesta() {
+  G.fiesta = true;
+  G.fiestaNext = G.time + 0.3;
+  SFX.success();
+  [784, 988, 1175, 1568].forEach((f, i) => beep(f, 0.18, 'triangle', 0.05, null, 0.45 + i * 0.12));
+  after(1.0, openFiesta);   // primero arrancan los fuegos, luego el cartel gigante
+}
+
+/* --- Cartel de la Fiesta interplanetaria (DOM) con pastel pixel art ---- */
+// Pastel de cumpleaños como matriz (dos fotogramas para el parpadeo de las velas)
+const CAKE_MAP = {
+  O: PAL.outline, F: PAL.flameO, Y: PAL.flameY, W: '#ffffff', C: PAL.cyan, M: PAL.magenta,
+  K: '#ff6ad5', k: '#c0408a', G: PAL.green, S: '#ffd2a0', s: '#e0a070', P: PAL.metalLight
+};
+const CAKE_BODY = [
+  '....W....W....W...',
+  '....C....M....C...',
+  '....W....W....W...',
+  '....C....M....C...',
+  '..OOOOOOOOOOOOOO..',
+  '.OKKKKKKKKKKKKKKO.',
+  '.OKYKKGKKCKKYKKKO.',
+  '.OKkKKkKKKkKKkKKO.',
+  '.OSkSSSSkSSSSSkSO.',
+  '.OSSSSSSSSSSSSSSO.',
+  '.OKKKKKKKKKKKKKKO.',
+  '.OSSSSSSSSSSSSSSO.',
+  '.OssssssssssssssO.',
+  'PPPPPPPPPPPPPPPPPP'
+];
+SPR.cake1 = makeSprite(['....F....F....F...', '...FYF..FYF..FYF..', ...CAKE_BODY], CAKE_MAP);
+SPR.cake2 = makeSprite(['....Y....Y....Y...', '...YFY..YFY..YFY..', ...CAKE_BODY], CAKE_MAP);
+
+const cartelFiesta = document.getElementById('cartel-fiesta');
+const pastelCtx = document.getElementById('pastel-canvas').getContext('2d');
+const btnCerrarFiesta = document.getElementById('btn-cerrar-fiesta');
+btnCerrarFiesta.addEventListener('click', e => { e.stopPropagation(); closeFiesta(); });
+cartelFiesta.addEventListener('pointerdown', e => e.stopPropagation());
+let cakeFrame = -1;
+
+function drawCake() {
+  const f = (G.time * 4 | 0) % 2;
+  if (f === cakeFrame) return;
+  cakeFrame = f;
+  pastelCtx.clearRect(0, 0, 144, 128);
+  drawSprite(pastelCtx, f ? SPR.cake2 : SPR.cake1, 0, 0, 8);   // 18x16 px de arte, a 8x
+}
+
+function openFiesta() {
+  if (G.phase !== 4 || G.fiestaOpen) return;
+  G.fiestaOpen = true;
+  movePtr = null;
+  joy.active = false;
+  joy.id = null;
+  joy.kx = joy.ky = 0;
+  for (const k in keys) keys[k] = false;
+  cakeFrame = -1;
+  drawCake();
+  cartelFiesta.classList.add('abierto');
+  try { btnCerrarFiesta.focus({ preventScroll: true }); } catch (e) { /* sin foco */ }
+  // "Cumpleaños feliz" (primera frase), con el WebAudio del juego
+  let t = 0.1;
+  [[392, 0.22], [392, 0.12], [440, 0.36], [392, 0.36], [523, 0.36], [494, 0.7]].forEach(([f, d]) => {
+    beep(f, d * 0.95, 'triangle', 0.05, null, t);
+    beep(f * 2, d * 0.6, 'sine', 0.012, null, t);
+    t += d + 0.04;
+  });
+}
+
+function closeFiesta() {
+  if (!G.fiestaOpen) return;
+  G.fiestaOpen = false;
+  cartelFiesta.classList.remove('abierto');
+  canvas.focus();
+}
+
+// Fuegos automáticos y aleatorios por todo el cielo visible, sin parar
+function updateFiesta() {
+  if (!G.fiesta || G.time < G.fiestaNext) return;
+  G.fiestaNext = G.time + rand(0.22, 0.5);
+  const vw = W / zoom, vh = H / zoom;
+  const n = Math.random() < 0.35 ? 2 : 1;   // a veces salen de a dos
+  for (let i = 0; i < n; i++) {
+    if (G.fireworks.filter(fw => fw.auto).length >= 9) return;
+    const sx = cam.x + rand(0.08, 0.92) * vw, sy = cam.y + vh * rand(0.88, 1.02);
+    makeFirework(sx, sy, sx + rand(-40, 40), cam.y + vh * rand(0.08, 0.5), true);
+  }
+}
+
+function updateFireworks(dt) {
+  for (const fw of G.fireworks) {
+    fw.x += fw.vx * dt;
+    fw.y += fw.vy * dt;
+    fw.left -= dt;
+    // estela de chispitas
+    G.particles.push({ x: fw.x, y: fw.y, vx: rand(-4, 4), vy: rand(-2, 6), g: 20, life: 0.35, max: 0.35, c: pick([fw.cols[0], PAL.flameY]), s: 1 });
+    if (fw.left <= 0) explodeFirework(fw);
+  }
+  G.fireworks = G.fireworks.filter(fw => fw.left > 0);
+}
+
+function explodeFirework(fw) {
+  const ex = fw.tx, ey = fw.ty;
+  // Estallido: anillo de píxeles que caen con gravedad y se desvanecen
+  const n = 48;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + rand(-0.08, 0.08), s = rand(28, 62);
+    G.particles.push({ x: ex, y: ey, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 8, g: 38, life: rand(1, 1.7), max: 1.7, c: fw.cols[i % 2], s: pick([1, 2, 2]) });
+  }
+  for (let i = 0; i < 10; i++) {
+    const a = Math.random() * Math.PI * 2, s = rand(5, 18);
+    G.particles.push({ x: ex, y: ey, vx: Math.cos(a) * s, vy: Math.sin(a) * s, g: 10, life: 0.5, max: 0.5, c: '#ffffff', s: 2 });
+  }
+  // Detonación suave + chisporroteo (más bajito en los automáticos de la fiesta)
+  const vol = fw.auto ? 0.45 : 1;
+  beep(150, 0.35, 'triangle', 0.07 * vol, 45);
+  for (let i = 0; i < 5; i++) beep(1800 + Math.random() * 1200, 0.025, 'square', 0.01 * vol, null, 0.12 + i * 0.07);
+
+  // Interacciones: los árboles cercanos cambian sutilmente de tono y destellan
+  for (const t of EPI.trees) {
+    if (dist(t.x, t.y - 24, ex, ey) < 42) { t.shade = (t.shade + 1) % 3; t.flashT = G.time; }
+  }
+  // Flores alcanzadas por el estallido: pasan a OTRO color aleatorio de la
+  // paleta musical (por lo tanto cambian de nota) y destellan.
+  // El radio cubre hasta donde llegan las partículas del anillo (~45 px).
+  for (const f of EPI.flowers) {
+    if (dist(f.x, f.y - 5, ex, ey) < FW_FLOWER_RADIUS) {
+      let c = (Math.random() * FLOWER_SCALE.length) | 0;
+      if (c === f.c) c = (c + 1 + ((Math.random() * (FLOWER_SCALE.length - 1)) | 0)) % FLOWER_SCALE.length;
+      f.c = c;
+      f.shade = 0;
+      f.flashT = G.time;
+      f.bounceT = G.time;
+      burst(f.x, f.y - 6, 8, [FLOWER_SCALE[c].shades[0], '#ffffff'], 28, 0.6);
+    }
+  }
+  // El gatito festeja cada explosión tuya (en la fiesta salta sin parar, ver drawCat)
+  if (cat.active && !fw.auto) {
+    cat.cheerT = G.time;
+    beep(1250, 0.07, 'triangle', 0.025, 1600, 0.08);
+  }
+}
+
+function drawFireworks() {
+  for (const fw of G.fireworks) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(Math.round(fw.x) - 1, Math.round(fw.y) - 1, 2, 2);
+    ctx.fillStyle = fw.cols[0];
+    ctx.fillRect(Math.round(fw.x - fw.vx * 0.012) - 1, Math.round(fw.y - fw.vy * 0.012) - 1, 2, 2);
+  }
+}
+
+/* --- Botones de siembra en HTML (#hud-siembra) -------------------------
+   En PC recuerdan las teclas E / F (y también se pueden clicar); en el
+   celular son botones reales. Son hermanos del canvas y además cortan la
+   propagación, así que tocarlos NUNCA dispara un fuego artificial. */
+const hudSiembra = document.getElementById('hud-siembra');
+const btnArbol = document.getElementById('btn-arbol');
+const btnFlor = document.getElementById('btn-flor');
+
+function bindSeedButton(btn, action) {
+  // pointerdown: respuesta inmediata en táctil; preventDefault evita robar el foco del canvas
+  btn.addEventListener('pointerdown', e => {
+    e.stopPropagation();
+    e.preventDefault();
+    initAudio();
+    if (e.pointerType === 'touch') G.touchUI = true;
+    action();
+  });
+  // Cortamos también el resto de eventos del toque para que no lleguen al juego
+  ['pointerup', 'pointermove', 'click', 'touchstart', 'touchend'].forEach(type =>
+    btn.addEventListener(type, e => { e.stopPropagation(); if (type === 'click') e.preventDefault(); }));
+}
+bindSeedButton(btnArbol, plantTree);
+bindSeedButton(btnFlor, plantFlower);
+
+/* --- Bitácora del Asistente de Navegación (todas las fases) -----------
+   El panel de texto se muestra ASST_SHOW segundos y luego se pliega en un
+   botón flotante con ícono de cuaderno; tocarlo vuelve a desplegarlo. */
+const ASST_SHOW = 5;      // segundos visibles antes de plegarse
+const ASST_ICON = 44;     // tamaño del botón (px CSS)
+const ASST_X_H = 30;      // alto del botón [X] Cerrar (px CSS)
+// introClosed: en la fase 4 las instrucciones quedan fijas hasta que se cierran a mano
+const ASST = { sig: '', shownAt: -99, introClosed: false, collapseNext: false };
+const btnBitacora = document.getElementById('btn-bitacora');
+bindSeedButton(btnBitacora, () => {
+  if (G.phase === 4) ASST.introClosed = false;   // reabre las instrucciones (fijas, con [X])
+  else ASST.shownAt = G.time;
+  SFX.info();
+});
+
+// Botón [X] Cerrar dentro del panel fijado: lo pliega al cuaderno
+const btnCerrarBitacora = document.getElementById('btn-cerrar-bitacora');
+bindSeedButton(btnCerrarBitacora, () => {
+  ASST.introClosed = true;
+  ASST.collapseNext = true;
+  beep(520, 0.06, 'triangle', 0.04, 360);
+});
+const asstCloseUI = { visible: null, left: null, top: null };
+function updateAsstClose(pos) {
+  const visible = !!pos && G.state === 'play' && !G.paused && !G.fiestaOpen;
+  if (visible !== asstCloseUI.visible) {
+    asstCloseUI.visible = visible;
+    btnCerrarBitacora.classList.toggle('visible', visible);
+  }
+  if (!visible) return;
+  const left = Math.round(pos.left), top = Math.round(pos.top);
+  if (left !== asstCloseUI.left || top !== asstCloseUI.top) {
+    asstCloseUI.left = left;
+    asstCloseUI.top = top;
+    btnCerrarBitacora.style.left = left + 'px';
+    btnCerrarBitacora.style.top = top + 'px';
+  }
+}
+
+const asstUI = { visible: null, left: null, top: null };
+function updateAsstButton(pos) {
+  const visible = !!pos && G.state === 'play' && !G.paused && !G.fiestaOpen;
+  if (visible !== asstUI.visible) {
+    asstUI.visible = visible;
+    btnBitacora.classList.toggle('visible', visible);
+  }
+  if (!visible) return;
+  const left = Math.round(pos.left), top = Math.round(pos.top);
+  if (left !== asstUI.left || top !== asstUI.top) {
+    asstUI.left = left;
+    asstUI.top = top;
+    btnBitacora.style.left = left + 'px';
+    btnBitacora.style.top = top + 'px';
+  }
+}
+
+// Brillo del botón al usarlo (también cuando se pulsa la tecla)
+function flashSeedButton(btn) {
+  btn.classList.remove('pulsado');
+  void btn.offsetWidth;   // reinicia la animación
+  btn.classList.add('pulsado');
+}
+
+/* Sincroniza los botones HTML con el estado del juego (se llama cada frame,
+   pero solo toca el DOM cuando algo cambia). */
+const seedUI = { visible: null, bottom: null, flor: null };
+function updateSeedUI() {
+  // Fuera del juego (título, despegue, aterrizaje, carta abierta) se oculta la bitácora
+  if (G.state !== 'play' || G.paused || G.fiestaOpen) { updateAsstButton(null); updateAsstClose(null); }
+  const visible = G.phase === 4 && G.state === 'play' && !G.paused && !G.fiestaOpen;
+  if (visible !== seedUI.visible) {
+    seedUI.visible = visible;
+    hudSiembra.classList.toggle('visible', visible);
+  }
+  if (!visible) return;
+  // Siempre abajo a la izquierda (el joystick táctil está a la derecha)
+  const bottom = 14;
+  if (bottom !== seedUI.bottom) {
+    seedUI.bottom = bottom;
+    hudSiembra.style.bottom = `calc(${bottom}px + env(safe-area-inset-bottom, 0px))`;
+  }
+  // El botón de flor toma el color de la próxima nota
+  if (G.nextFlower !== seedUI.flor) {
+    seedUI.flor = G.nextFlower;
+    const fc = FLOWER_SCALE[G.nextFlower];
+    btnFlor.style.setProperty('--neon', fc.shades[0]);
+  }
+}
+
+/* Caja de regalo: al tocarla se abre (una sola vez) y salta el gatito. */
+function updateGift() {
+  const g = EPI.gift;
+  const near = dist(player.x, player.y, g.x, g.y - 6) < 26;
+  if (near && !g.wasNear && !g.opened) openGift();
+  g.wasNear = near;
+}
+
+function openGift() {
+  const g = EPI.gift;
+  g.opened = true;
+  g.openT = G.time;
+  // sonido alegre: arpegio ascendente + campanita
+  SFX.success();
+  beep(1568, 0.25, 'sine', 0.03, null, 0.42);
+  burst(g.x, g.y - 24, 50, [PAL.magenta, PAL.cyan, PAL.yellow, PAL.green, '#ffffff'], 70, 1.2);
+  after(0.35, spawnCat);   // el gatito salta cuando la tapa ya voló
+}
+
+/* Baliza de la nave en hibernación: abre la carta del voucher (se puede releer).
+   Se enciende recién cuando la caja ya fue abierta. */
+function updateBeacon() {
+  const s = EPI.sleeper;
+  const near = dist(player.x, player.y, s.bx, s.by) < 16;
+  if (near && !s.wasNear) {
+    if (!EPI.gift.opened) {
+      beep(220, 0.2, 'triangle', 0.04, 160);
+      toast('La baliza está en reposo. Primero revisa lo que brilla en el centro del mapa.', PAL.metalLight, 3);
+    } else {
+      s.read = true;
+      openLetter();
+    }
+  }
+  s.wasNear = near;
+}
+
+function openLetter() {
+  const first = !EPI.sleeper.opened;
+  EPI.sleeper.opened = true;
+  G.paused = true;
+  player.moving = false;
+  movePtr = null;
+  joy.active = false;
+  joy.id = null;
+  joy.kx = joy.ky = 0;
+  for (const k in keys) keys[k] = false;
+  if (first) {
+    // señal de "despertar": barrido de tonos fríos
+    [392, 523, 659, 784].forEach((f, i) => beep(f, 0.2, 'sine', 0.04, null, i * 0.09));
+    burst(EPI.sleeper.bx, EPI.sleeper.by - 8, 30, [PAL.cyan, PAL.ice, '#ffffff'], 45, 1);
+  } else {
+    SFX.info();
+  }
+  carta.classList.add('abierta');
+  try { btnCanjear.focus({ preventScroll: true }); } catch (e) { /* sin foco */ }
+}
+
+function closeLetter() {
+  if (!G.paused) return;
+  carta.classList.remove('abierta');
+  G.paused = false;
+  canvas.focus();
+}
+
+/* Sorpresa de la caja: el gatito salta fuera y se une a la tripulación. */
+function spawnCat() {
+  cat.active = true;
+  cat.x = EPI.gift.x;
+  cat.y = EPI.gift.y + 2;
+  cat.facing = player.x < cat.x ? -1 : 1;
+  burst(cat.x, cat.y - 8, 30, [PAL.cyan, PAL2.glowP, PAL.yellow, '#ffffff'], 45, 0.9);
+  beep(900, 0.12, 'triangle', 0.05, 1300);              // "miau"
+  beep(1300, 0.22, 'triangle', 0.04, 700, 0.12);
+  cat.cheerT = G.time;   // aterriza con un saltito y un "!"
+  toast('¡Compañero gatuno desbloqueado!', PAL2.glowP, 3.5);
+}
+
+/* Seguimiento del gatito: se acerca con un lerp hacia un punto a
+   FOLLOW_DIST del vaquero, así lo sigue sin pisarlo. */
+const FOLLOW_DIST = 16;
+function updateCat(dt) {
+  if (!cat.active) return;
+  // Festejando un fuego artificial: se queda quieto un momento
+  if (G.time - cat.cheerT < 0.9) { cat.moving = false; return; }
+  const dx = player.x - cat.x, dy = player.y - cat.y;
+  const d = Math.hypot(dx, dy);
+  cat.moving = false;
+  if (d > FOLLOW_DIST) {
+    const tx = player.x - (dx / d) * FOLLOW_DIST, ty = player.y - (dy / d) * FOLLOW_DIST;
+    const k = 1 - Math.exp(-dt * 5);     // lerp independiente de los FPS
+    const nx = lerp(cat.x, tx, k), ny = lerp(cat.y, ty, k);
+    if (Math.abs(nx - cat.x) > 0.02) cat.facing = nx > cat.x ? 1 : -1;
+    cat.moving = Math.hypot(nx - cat.x, ny - cat.y) > 0.03;
+    cat.x = nx;
+    cat.y = ny;
+  }
+  if (cat.moving) cat.animT += dt;
+  else if (!player.moving && Math.random() < 0.012) {
+    // corazoncito cuando están quietos juntos
+    G.particles.push({ x: cat.x + rand(-2, 2), y: cat.y - 12, vx: rand(-2, 2), vy: -10, life: 1.2, max: 1.2, c: PAL.magenta, s: 2 });
+  }
+}
+
+/* --- Dibujo del epílogo (se integra al orden por profundidad) -------- */
+function addEpilogueEnts(ents) {
+  for (const t of EPI.trees) ents.push({ y: t.y, draw: () => drawTree(t) });
+  for (const f of EPI.flowers) ents.push({ y: f.y, draw: () => drawFlower(f) });
+  ents.push({ y: EPI.gift.y, draw: drawGift });
+  ents.push({ y: EPI.sleeper.y, draw: drawSleeper });
+  ents.push({ y: EPI.sleeper.by, draw: drawBeacon });
+  if (cat.active) ents.push({ y: cat.y, draw: drawCat });
+}
+
+/* Nave en hibernación: misma matriz que la principal, apagada, con una
+   lucecita azul que "respira" despacio. */
+function drawSleeper() {
+  const s = EPI.sleeper;
+  pxEllipse(ctx, s.x, s.y, 20, 5, 'rgba(0,0,0,0.45)');
+  // escarcha de hibernación alrededor
+  ctx.globalAlpha = 0.06 + 0.04 * Math.sin(G.time * 0.8);
+  pxEllipse(ctx, s.x, s.y - 24, 24, 30, PAL.ice);
+  ctx.globalAlpha = 1;
+  drawSprite(ctx, SPR.shipOff, s.x - 18, s.y - 52, 2);
+  ctx.globalAlpha = 0.3 + 0.7 * Math.abs(Math.sin(G.time * 0.9));
+  ctx.fillStyle = s.read ? PAL.cyan : PAL.iceDark;
+  ctx.fillRect(Math.round(s.x) - 1, Math.round(s.y) - 50, 2, 2);
+  ctx.globalAlpha = 1;
+}
+
+/* Baliza: apagada hasta abrir la caja; luego parpadea cian/magenta. */
+function drawBeacon() {
+  const s = EPI.sleeper;
+  const on = EPI.gift.opened;
+  pxEllipse(ctx, s.bx, s.by, 6, 1.5, 'rgba(0,0,0,0.45)');
+  if (on) {
+    ctx.globalAlpha = 0.2 + 0.15 * Math.sin(G.time * 4);
+    pxEllipse(ctx, s.bx, s.by, 14, 5, PAL.cyan);
+    ctx.globalAlpha = 1;
+  }
+  const spr = !on ? SPR.beaconOff : (G.time * 2.5 | 0) % 2 ? SPR.beaconAlt : SPR.beaconOn;
+  drawSprite(ctx, spr, s.bx - 4, s.by - 10, 1);
+  if (on && !s.read) {
+    // flechita que rebota encima
+    const y = Math.round(s.by - 18 + Math.sin(G.time * 5) * 1.5);
+    ctx.fillStyle = PAL.yellow;
+    ctx.fillRect(Math.round(s.bx) - 2, y, 4, 1);
+    ctx.fillRect(Math.round(s.bx) - 1, y + 1, 2, 1);
+  }
+}
+
+function drawTree(t) {
+  const canopy = TREE_CANOPIES[t.v][t.shade][0];
+  const grow = G.time - t.plantT;   // recién plantado: brota pequeño y luego crece
+  pxEllipse(ctx, t.x, t.y, grow < 0.25 ? 5 : 10, 2.5, 'rgba(0,0,0,0.4)');
+  if (grow < 0.25) {
+    drawSprite(ctx, SPR.trees[t.v][t.shade], t.x - 8, t.y - 18, 1);
+    return;
+  }
+  // halo de la copa que respira
+  ctx.globalAlpha = 0.08 + 0.06 * Math.sin(G.time * 1.5 + t.x);
+  pxEllipse(ctx, t.x, t.y - 26, 20, 12, canopy);
+  // destello por fuego artificial cercano
+  const fl = G.time - t.flashT;
+  if (fl < 0.5) {
+    ctx.globalAlpha = 0.55 * (1 - fl / 0.5);
+    pxEllipse(ctx, t.x, t.y - 26, 22, 14, '#ffffff');
+  }
+  ctx.globalAlpha = 1;
+  drawSprite(ctx, SPR.trees[t.v][t.shade], t.x - 16, t.y - 37, 2);
+}
+
+function drawFlower(f) {
+  const color = FLOWER_SCALE[f.c].shades[f.shade];
+  const age = G.time - f.bounceT;
+  const hop = age < 0.4 ? Math.round(Math.sin((age / 0.4) * Math.PI) * 3) : 0;
+  const sway = Math.round(Math.sin(G.time * 2 + f.x * 0.3) * 0.6);
+  if (age < 0.6) {
+    ctx.globalAlpha = 0.4 * (1 - age / 0.6);
+    pxEllipse(ctx, f.x, f.y, 6, 2, color);
+    ctx.globalAlpha = 1;
+  }
+  const fl = G.time - f.flashT;
+  if (fl < 0.45) {
+    ctx.globalAlpha = 0.7 * (1 - fl / 0.45);
+    pxEllipse(ctx, f.x, f.y - 6, 5, 4, '#ffffff');
+    ctx.globalAlpha = 1;
+  }
+  drawSprite(ctx, SPR.flowerSet[f.c][f.shade], f.x - 3 + sway, f.y - 8 - hop, 1);
+}
+
+function drawGift() {
+  const g = EPI.gift;
+  ctx.globalAlpha = 0.18 + 0.1 * Math.sin(G.time * 3);
+  pxEllipse(ctx, g.x, g.y, 24, 8, g.opened ? PAL.green : PAL.yellow);
+  ctx.globalAlpha = 1;
+  pxEllipse(ctx, g.x, g.y, 16, 3, 'rgba(0,0,0,0.45)');
+  drawSprite(ctx, SPR.giftBox, g.x - 16, g.y - 16, 2);
+  // cerrada: la tapa tiembla de emoción; abierta: flota por encima
+  let lift = Math.round(Math.abs(Math.sin(G.time * 5)) * 1.2);
+  if (g.opened) {
+    const a = G.time - g.openT;
+    // la tapa salta (sube de golpe, rebota) y luego queda flotando
+    lift = a < 0.5 ? Math.round(Math.sin((a / 0.5) * Math.PI * 0.5) * 18) : Math.round(18 - Math.min(1, (a - 0.5) / 0.4) * 9 + Math.sin(G.time * 3) * 1.5);
+  }
+  drawSprite(ctx, SPR.giftLid, g.x - 16, g.y - 32 - lift, 2);
+}
+
+function drawCat() {
+  pxEllipse(ctx, cat.x, cat.y, 5, 1.5, 'rgba(0,0,0,0.45)');
+  const step = cat.moving && Math.floor(cat.animT * 10) % 2 === 1;
+  const ca = G.time - cat.cheerT;
+  // saltito de festejo; en la Fiesta Planetaria salta sin parar
+  const hop = G.fiesta ? Math.round(Math.abs(Math.sin(G.time * 7)) * 4)
+    : ca < 0.45 ? Math.round(Math.sin((ca / 0.45) * Math.PI) * 4) : 0;
+  drawSprite(ctx, step ? SPR.catB : SPR.catA, cat.x - 6, cat.y - 11 - (step ? 1 : 0) - hop, 1, cat.facing < 0);
+  if (ca < 0.9) {
+    // signo "!" amarillo sobre la cabeza
+    const x = Math.round(cat.x) - 1, y = Math.round(cat.y) - 21 - hop;
+    ctx.fillStyle = PAL.outline;
+    ctx.fillRect(x - 1, y - 1, 4, 8);
+    ctx.fillStyle = PAL.yellow;
+    ctx.fillRect(x, y, 2, 4);
+    ctx.fillRect(x, y + 5, 2, 1);
+  }
+}
+
+/* Líneas de barrido CRT sobre todo el juego. */
+function drawScanlines() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = 'rgba(0,0,0,0.13)';
+  const step = Math.max(3, Math.round(3 * dpr));
+  const th = Math.max(1, Math.round(dpr));
+  for (let y = 0; y < H; y += step) ctx.fillRect(0, y, W, th);
+}
+
+/* ---------------------------------------------------------------------
+   12. REDIMENSIONADO RESPONSIVO
+   Zoom entero para que el pixel art se vea nítido en cualquier pantalla.
+   --------------------------------------------------------------------- */
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const cssW = window.innerWidth, cssH = window.innerHeight;
+  canvas.style.width = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  W = canvas.width = Math.round(cssW * dpr);
+  H = canvas.height = Math.round(cssH * dpr);
+  zoom = Math.max(2, Math.round(Math.min(W, H) / 230));
+  ui = dpr * clamp(Math.min(cssW, cssH) / 420, 0.75, 1.5);
+  joy.R = Math.round(52 * ui);
+  // Joystick en la esquina inferior DERECHA (los botones de siembra van a la izquierda)
+  joy.x = Math.round(W - 22 * ui - joy.R);
+  joy.y = Math.round(H - 22 * ui - joy.R);
+  ctx.imageSmoothingEnabled = false;
+  updateCamera(0, true);
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 150));
+
+/* ---------------------------------------------------------------------
+   13. BUCLE PRINCIPAL (requestAnimationFrame)
+   --------------------------------------------------------------------- */
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);   // evita saltos al volver a la pestaña
+  last = now;
+  update(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+
+resize();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
