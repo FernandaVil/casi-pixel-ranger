@@ -191,6 +191,82 @@
     .btn-siembra:hover { opacity: 1; }
   }
 
+  /* ---- Cinemática de mascota (z-index propio, no choca con #carta-regalo ni la fiesta) ---- */
+  #modal-mascota {
+    position: fixed;
+    inset: 0;
+    z-index: 14;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    box-sizing: border-box;
+    background: rgba(7, 5, 13, 0.72);   /* oscurece el juego de fondo */
+    touch-action: manipulation;
+  }
+  #modal-mascota.abierto { display: flex; animation: carta-fondo 0.3s ease-out; }
+  .mascota-marco {
+    position: relative;
+    width: 100%;
+    max-width: 420px;
+    max-height: 100%;
+    overflow-y: auto;
+    box-sizing: border-box;
+    padding: 22px 20px 20px;
+    text-align: center;
+    font-family: "Courier New", Courier, monospace;
+    font-weight: bold;
+    color: #f2e6d0;
+    background:
+      radial-gradient(circle at 50% 30%, rgba(255, 106, 213, 0.25), transparent 60%),
+      linear-gradient(160deg, rgba(40, 20, 80, 0.95), rgba(14, 8, 32, 0.96));
+    border: 3px solid #ff6ad5;
+    outline: 3px solid #3ef0ff;
+    outline-offset: 4px;
+    box-shadow: 0 0 26px rgba(255, 106, 213, 0.55), 0 0 50px rgba(62, 240, 255, 0.3);
+    animation: carta-entrada 0.5s cubic-bezier(0.2, 1.5, 0.4, 1);
+  }
+  .mascota-marco::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.12) 0 1px, transparent 1px 3px);
+  }
+  #mascota-canvas {
+    display: block;
+    width: 120px;
+    height: 110px;
+    margin: 4px auto 14px;
+    image-rendering: pixelated;          /* el pixel art escalado no se ve borroso */
+    image-rendering: crisp-edges;
+    filter: drop-shadow(0 0 10px rgba(62, 240, 255, 0.6));
+    animation: mascota-salto 0.9s ease-in-out infinite;
+  }
+  #mascota-titulo {
+    margin: 0 0 8px;
+    font-size: clamp(20px, 6vw, 26px);
+    line-height: 1.25;
+    color: #ff6ad5;
+    text-shadow: 0 0 8px rgba(255, 106, 213, 0.7), 2px 2px 0 #120b18;
+  }
+  .mascota-marco p { margin: 0 0 18px; font-size: 16px; line-height: 1.45; }
+  #btn-continuar-mascota {
+    position: relative;
+    z-index: 1;
+    padding: 12px 34px;
+    font: inherit;
+    font-size: 18px;
+    color: #07050d;
+    background: #3ef0ff;
+    border: 3px solid #07050d;
+    box-shadow: 0 0 0 3px #3ef0ff, 0 0 20px rgba(62, 240, 255, 0.75);
+    cursor: pointer;
+    animation: latido 1.2s ease-in-out infinite;
+  }
+  #btn-continuar-mascota:hover, #btn-continuar-mascota:focus-visible { background: #a8fbff; }
+  @keyframes mascota-salto { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+
   /* ---- Cartel de la Fiesta interplanetaria ---- */
   #cartel-fiesta {
     position: fixed;
@@ -319,7 +395,8 @@
   @keyframes carta-fondo { from { opacity: 0; } to { opacity: 1; } }
   @media (prefers-reduced-motion: reduce) {
     #carta-regalo.abierta, .carta-marco, #btn-canjear, .btn-siembra.pulsado, .btn-bitacora.visible,
-    #cartel-fiesta.abierto, .fiesta-marco, #pastel-canvas, #fiesta-titulo { animation: none; }
+    #cartel-fiesta.abierto, .fiesta-marco, #pastel-canvas, #fiesta-titulo,
+    #modal-mascota.abierto, .mascota-marco, #mascota-canvas, #btn-continuar-mascota { animation: none; }
   }
 </style>
 </head>
@@ -330,6 +407,16 @@
 <div id="hud-siembra" aria-label="Siembra">
   <button id="btn-arbol" class="btn-siembra" type="button" tabindex="-1"><span class="tecla">[E]</span>- Sembrar Árbol</button>
   <button id="btn-flor" class="btn-siembra" type="button" tabindex="-1"><span class="tecla">[F]</span>- Sembrar Flor<span class="nota" id="flor-nota" aria-hidden="true"></span></button>
+</div>
+
+<!-- Cinemática de mascota: se abre al tocar la caja de regalo (Fase 4) -->
+<div id="modal-mascota" role="dialog" aria-modal="true" aria-labelledby="mascota-titulo">
+  <div class="mascota-marco">
+    <canvas id="mascota-canvas" width="120" height="110" aria-label="Gatito espacial pixelado"></canvas>
+    <h2 id="mascota-titulo">¡Nuevo compañero desbloqueado!</h2>
+    <p>A partir de ahora te acompañará un gatito espacial en tu viaje.</p>
+    <button id="btn-continuar-mascota" type="button">Continuar</button>
+  </div>
 </div>
 
 <!-- Cartel de la Fiesta interplanetaria (las 20 flores cantaron) -->
@@ -805,6 +892,7 @@ const G = {
   fiesta: false,      // fase 4: easter egg "Fiesta Planetaria" (cantaron las 20 flores)
   fiestaNext: 0,      // fase 4: momento del próximo fuego automático de la fiesta
   fiestaOpen: false,  // fase 4: cartel "¡Fiesta interplanetaria!" abierto
+  petOpen: false,     // fase 4: cinemática de mascota abierta (juego en pausa)
   beaconHint: false,  // fase 4: ya se dio la pista para encontrar la nave dormida
   banner: null,       // cartel grande centrado temporal {text, t0, dur}
   nextFlower: 0,      // fase 4: color/nota de la próxima flor a sembrar (orden Do-Re-Mi-Fa-Sol)
@@ -878,6 +966,10 @@ function toCanvas(e) {
 
 window.addEventListener('keydown', e => {
   // Con la carta abierta, el teclado es para los botones (Escape la cierra)
+  if (G.petOpen) {   // cinemática de mascota: Enter / Espacio / Escape = "Continuar"
+    if (['Escape', 'Enter', 'Space', 'NumpadEnter'].includes(e.code)) { e.preventDefault(); closePetModal(); }
+    return;
+  }
   if (G.fiestaOpen) { if (e.code === 'Escape') closeFiesta(); return; }
   if (G.paused) { if (e.code === 'Escape') closeLetter(); return; }
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
@@ -2546,7 +2638,8 @@ const BEACON_HINT = 'Se escucha un zumbido de hibernación hacia el noreste del 
 
 /* --- Update del epílogo ------------------------------------------------ */
 function updateEpilogue(dt) {
-  if (!G.paused) {
+  if (G.petOpen) drawPetPreview();   // cinemática de mascota: el juego queda en pausa
+  if (!G.paused && !G.petOpen) {
     if (!G.fiestaOpen) updatePlayer(dt);   // con el cartel abierto los fuegos siguen, el vaquero espera
     else drawCake();
     // Obstáculos sólidos: nave, árboles y la caja
@@ -2924,7 +3017,7 @@ bindSeedButton(btnCerrarBitacora, () => {
 });
 const asstCloseUI = { visible: null, left: null, top: null };
 function updateAsstClose(pos) {
-  const visible = !!pos && G.state === 'play' && !G.paused && !G.fiestaOpen;
+  const visible = !!pos && G.state === 'play' && !G.paused && !G.fiestaOpen && !G.petOpen;
   if (visible !== asstCloseUI.visible) {
     asstCloseUI.visible = visible;
     btnCerrarBitacora.classList.toggle('visible', visible);
@@ -2941,7 +3034,7 @@ function updateAsstClose(pos) {
 
 const asstUI = { visible: null, left: null, top: null };
 function updateAsstButton(pos) {
-  const visible = !!pos && G.state === 'play' && !G.paused && !G.fiestaOpen;
+  const visible = !!pos && G.state === 'play' && !G.paused && !G.fiestaOpen && !G.petOpen;
   if (visible !== asstUI.visible) {
     asstUI.visible = visible;
     btnBitacora.classList.toggle('visible', visible);
@@ -2968,8 +3061,8 @@ function flashSeedButton(btn) {
 const seedUI = { visible: null, bottom: null, flor: null };
 function updateSeedUI() {
   // Fuera del juego (título, despegue, aterrizaje, carta abierta) se oculta la bitácora
-  if (G.state !== 'play' || G.paused || G.fiestaOpen) { updateAsstButton(null); updateAsstClose(null); }
-  const visible = G.phase === 4 && G.state === 'play' && !G.paused && !G.fiestaOpen;
+  if (G.state !== 'play' || G.paused || G.fiestaOpen || G.petOpen) { updateAsstButton(null); updateAsstClose(null); }
+  const visible = G.phase === 4 && G.state === 'play' && !G.paused && !G.fiestaOpen && !G.petOpen;
   if (visible !== seedUI.visible) {
     seedUI.visible = visible;
     hudSiembra.classList.toggle('visible', visible);
@@ -3005,7 +3098,49 @@ function openGift() {
   SFX.success();
   beep(1568, 0.25, 'sine', 0.03, null, 0.42);
   burst(g.x, g.y - 24, 50, [PAL.magenta, PAL.cyan, PAL.yellow, PAL.green, '#ffffff'], 70, 1.2);
-  after(0.35, spawnCat);   // el gatito salta cuando la tapa ya voló
+  openPetModal();   // cinemática: el juego se pausa y se presenta al gatito en grande
+}
+
+/* --- Cinemática de obtención de mascota (#modal-mascota) --------------
+   Pausa el juego (G.petOpen), muestra al gatito escalado en un canvas propio
+   y, al pulsar "Continuar", suena el miau y el gatito aparece en el mapa. */
+const modalMascota = document.getElementById('modal-mascota');
+const mascotaCtx = document.getElementById('mascota-canvas').getContext('2d');
+const btnContinuarMascota = document.getElementById('btn-continuar-mascota');
+btnContinuarMascota.addEventListener('click', e => { e.stopPropagation(); closePetModal(); });
+modalMascota.addEventListener('pointerdown', e => e.stopPropagation());
+const PET_SCALE = 10;   // 12x11 px de arte -> 120x110 px
+let petFrame = -1;
+
+function drawPetPreview() {
+  const f = (G.time * 3 | 0) % 2;   // alterna los dos fotogramas del gatito
+  if (f === petFrame) return;
+  petFrame = f;
+  mascotaCtx.clearRect(0, 0, 120, 110);
+  drawSprite(mascotaCtx, f ? SPR.catB : SPR.catA, 0, 0, PET_SCALE);
+}
+
+function openPetModal() {
+  if (G.petOpen) return;
+  G.petOpen = true;
+  movePtr = null;
+  joy.active = false;
+  joy.id = null;
+  joy.kx = joy.ky = 0;
+  for (const k in keys) keys[k] = false;
+  petFrame = -1;
+  drawPetPreview();
+  modalMascota.classList.add('abierto');
+  try { btnContinuarMascota.focus({ preventScroll: true }); } catch (e) { /* sin foco */ }
+}
+
+function closePetModal() {
+  if (!G.petOpen) return;
+  G.petOpen = false;
+  modalMascota.classList.remove('abierto');
+  canvas.focus();
+  initAudio();
+  spawnCat();   // miau + el gatito sale de la caja y empieza a seguir al vaquero
 }
 
 /* Baliza de la nave en hibernación: abre la carta del voucher (se puede releer).
@@ -3063,7 +3198,6 @@ function spawnCat() {
   beep(900, 0.12, 'triangle', 0.05, 1300);              // "miau"
   beep(1300, 0.22, 'triangle', 0.04, 700, 0.12);
   cat.cheerT = G.time;   // aterriza con un saltito y un "!"
-  toast('¡Compañero gatuno desbloqueado!', PAL2.glowP, 3.5);
 }
 
 /* Seguimiento del gatito: se acerca con un lerp hacia un punto a
