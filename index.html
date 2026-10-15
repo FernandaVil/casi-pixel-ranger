@@ -1730,6 +1730,7 @@ function drawHUD() {
   const pw = Math.round(Math.min((W - 3 * m) / 2, 260 * ui));
   const inner = pw - 2 * Math.round(9 * ui);
   let topBottom = m;
+  let statusBottom = m;   // borde inferior del panel de estado (arriba a la derecha)
 
   // ---- Mochila (arriba a la izquierda) ----
   if (G.phase === 1 || G.phase === 2) {
@@ -1786,7 +1787,8 @@ function drawHUD() {
       const fc = FLOWER_SCALE[G.nextFlower];
       rows.push({ t: 'text', s: `Próxima flor: ${fc.name}`, c: fc.shades[0], f: fsS });   // sin revelar la nota
     }
-    topBottom = Math.max(topBottom, m + layoutPanel(W - m - pw, m, pw, rows, PAL.magenta));
+    statusBottom = m + layoutPanel(W - m - pw, m, pw, rows, PAL.magenta);
+    topBottom = Math.max(topBottom, statusBottom);
   }
 
   // ---- Terminal de la nave ----
@@ -1802,6 +1804,7 @@ function drawHUD() {
   let toastAnchor = H - m - joyH;
   let asstIcon = null;   // posición (px CSS) del botón "bitácora" cuando el panel está plegado
   let asstClose = null;  // posición (px CSS) del botón [X] cuando el panel está fijado
+  let arrowTop = topBottom;   // la flecha del borde no debe tapar los paneles de arriba
   if (tRows) {
     // El mensaje se despliega ASST_SHOW segundos cada vez que cambia (o al tocar
     // el ícono de bitácora) y después se pliega en un botón flotante.
@@ -1823,25 +1826,38 @@ function drawHUD() {
       if (seedUI.visible) left = Math.round((hudSiembra.offsetWidth + 24) * dpr);
     }
     const avail = Math.max(W * 0.4, W - left - right);
-    const tw = Math.round(Math.min(avail, 560 * ui));
-    const tx = Math.round(Math.min(left + (avail - tw) / 2, W - m - tw));
+    let tw = Math.round(Math.min(avail, 560 * ui));
+    let tx = Math.round(Math.min(left + (avail - tw) / 2, W - m - tw));
+    // Escritorio (sin táctil): la bitácora va arriba a la derecha, justo debajo
+    // del panel de estado, alineada con su borde derecho (mismo margen m).
+    const desktop = !G.touchUI;
+    if (desktop) {
+      tw = Math.round(clamp(W * 0.42, pw, 440 * ui));
+      tx = W - m - tw;
+    }
     const th = layoutPanel(tx, 0, tw, tRows, PAL.cyan, true);
-    const ty = bottomPlace ? H - m - th : topBottom + m;
+    const ty = desktop ? statusBottom + m : bottomPlace ? H - m - th : topBottom + m;
+    const atBottom = !desktop && bottomPlace;
     if (pinned || age < ASST_SHOW) {
       ctx.globalAlpha = pinned ? 1 : clamp((ASST_SHOW - age) / 0.4, 0, 1);   // se desvanece al plegarse
       layoutPanel(tx, ty, tw, tRows, PAL.cyan);
       ctx.globalAlpha = 1;
-      if (bottomPlace) toastAnchor = H - m - th - m;
+      if (atBottom) toastAnchor = H - m - th - m;
+      if (desktop) arrowTop = Math.max(arrowTop, ty + th);
       if (pinned) asstClose = { left: (tx + tw) / dpr - 10, top: (ty + th) / dpr - 8 };   // esquina inferior derecha del panel
+    } else if (desktop) {
+      // plegada: el cuaderno queda bajo el panel de estado, pegado al margen derecho
+      asstIcon = { left: (W - m) / dpr - ASST_ICON, top: ty / dpr };
+      arrowTop = Math.max(arrowTop, ty + ASST_ICON * dpr);
     } else {
-      asstIcon = { left: tx / dpr, top: bottomPlace ? (H - m) / dpr - ASST_ICON : ty / dpr };
+      asstIcon = { left: tx / dpr, top: atBottom ? (H - m) / dpr - ASST_ICON : ty / dpr };
     }
   }
   updateAsstButton(asstIcon);
   updateAsstClose(asstClose);
 
   if (G.phase === 3 && G.sim) drawSimPanel(topBottom);
-  drawShipArrow(topBottom);
+  drawShipArrow(arrowTop);
   if (!G.sim) drawToasts(toastAnchor);
   drawBanner();
   if (G.touchUI && G.phase !== 3) drawJoystick();
@@ -2724,13 +2740,33 @@ function openFiesta() {
   drawCake();
   cartelFiesta.classList.add('abierto');
   try { btnCerrarFiesta.focus({ preventScroll: true }); } catch (e) { /* sin foco */ }
-  // "Cumpleaños feliz" (primera frase), con el WebAudio del juego
-  let t = 0.1;
-  [[392, 0.22], [392, 0.12], [440, 0.36], [392, 0.36], [523, 0.36], [494, 0.7]].forEach(([f, d]) => {
-    beep(f, d * 0.95, 'triangle', 0.05, null, t);
-    beep(f * 2, d * 0.6, 'sine', 0.012, null, t);
-    t += d + 0.04;
-  });
+  playBirthdaySong();
+}
+
+/* "Cumpleaños feliz" completo (las 4 frases) con el WebAudio del juego.
+   Todas las notas se agendan de una vez sobre el reloj del AudioContext
+   (parámetro "delay" de beep), así el tempo no depende de los FPS ni se corta.
+   Cada nota: [frecuencia, duración en pulsos]. Compás de 3/4. */
+const NOTE_HZ = { G4: 392.0, A4: 440.0, B4: 493.88, C5: 523.25, D5: 587.33, E5: 659.25, F5: 698.46, G5: 783.99 };
+const BIRTHDAY_SONG = [
+  ['G4', 0.75], ['G4', 0.25], ['A4', 1], ['G4', 1], ['C5', 1], ['B4', 2],               // Que los cumplas feliz
+  ['G4', 0.75], ['G4', 0.25], ['A4', 1], ['G4', 1], ['D5', 1], ['C5', 2],               // que los cumplas feliz
+  ['G4', 0.75], ['G4', 0.25], ['G5', 1], ['E5', 1], ['C5', 1], ['B4', 1], ['A4', 2],    // que los cumplas (nombre)...
+  ['F5', 0.75], ['F5', 0.25], ['E5', 1], ['C5', 1], ['D5', 1], ['C5', 3]                // que los cumplas feliz
+];
+const SONG_BEAT = 0.4;   // segundos por pulso (~150 ppm: alegre pero cantable)
+
+function playBirthdaySong() {
+  let t = 0.15;
+  for (const [n, beats] of BIRTHDAY_SONG) {
+    const f = NOTE_HZ[n], d = beats * SONG_BEAT;
+    // la nota suena el 92 % de su duración: separa las notas repetidas sin cortes bruscos
+    beep(f, d * 0.92, 'triangle', 0.055, null, t);
+    beep(f * 2, Math.min(d * 0.6, 0.35), 'sine', 0.012, null, t);   // brillo una octava arriba
+    t += d;
+  }
+  // Mientras suena la canción, los fuegos automáticos detonan más bajito
+  G.songUntil = G.time + t + 0.3;
 }
 
 function closeFiesta() {
@@ -2778,7 +2814,7 @@ function explodeFirework(fw) {
     G.particles.push({ x: ex, y: ey, vx: Math.cos(a) * s, vy: Math.sin(a) * s, g: 10, life: 0.5, max: 0.5, c: '#ffffff', s: 2 });
   }
   // Detonación suave + chisporroteo (más bajito en los automáticos de la fiesta)
-  const vol = fw.auto ? 0.45 : 1;
+  const vol = fw.auto ? (G.time < (G.songUntil || 0) ? 0.15 : 0.45) : 1;   // no tapar la canción
   beep(150, 0.35, 'triangle', 0.07 * vol, 45);
   for (let i = 0; i < 5; i++) beep(1800 + Math.random() * 1200, 0.025, 'square', 0.01 * vol, null, 0.12 + i * 0.07);
 
