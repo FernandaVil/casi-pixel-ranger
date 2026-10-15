@@ -1854,12 +1854,12 @@ function drawHUD() {
       if (atBottom) toastAnchor = H - m - th - m;
       if (desktop) arrowTop = Math.max(arrowTop, ty + th);
       if (pinned) asstClose = { left: (tx + tw) / dpr - 10, top: (ty + th) / dpr - 8 };   // esquina inferior derecha del panel
-    } else if (desktop) {
-      // plegada: el cuaderno queda bajo el panel de estado, pegado al margen derecho
-      asstIcon = { left: (W - m) / dpr - ASST_ICON, top: ty / dpr };
-      arrowTop = Math.max(arrowTop, ty + ASST_ICON * dpr);
     } else {
-      asstIcon = { left: tx / dpr, top: atBottom ? (H - m) / dpr - ASST_ICON : ty / dpr };
+      // plegada (PC y celular): el cuaderno queda arriba a la derecha, justo bajo
+      // el panel de estado y pegado al margen derecho (lejos del joystick y los botones)
+      const iconTop = statusBottom + m;
+      asstIcon = { left: (W - m) / dpr - ASST_ICON, top: iconTop / dpr };
+      arrowTop = Math.max(arrowTop, iconTop + ASST_ICON * dpr);
     }
   }
   updateAsstButton(asstIcon);
@@ -2124,7 +2124,7 @@ function drawTitle() {
     { t: 'text', s: 'VARADO EN KEPLER-7', c: PAL.magenta, f: Math.round(26 * ui), align: 'center' },
     { t: 'text', s: 'Un vaquero espacial, una nave rota y 3 problemas para resolver... varado en Kepler 7.', c: PAL.text, f: Math.round(12 * ui), align: 'center' },
     { t: 'gap', h: Math.round(8 * ui) },
-    { t: 'text', s: G.touchUI ? 'Muévete con el joystick (abajo a la izquierda) o mantén el dedo donde quieras ir.' : 'Muévete con WASD o las flechas. Espacio para la fase final.', c: PAL.cyan, f: Math.round(11 * ui), align: 'center' },
+    { t: 'text', s: G.touchUI ? 'Muévete con el joystick (abajo a la derecha) o mantén el dedo donde quieras ir.' : 'Muévete con WASD o las flechas. Espacio para la fase final.', c: PAL.cyan, f: Math.round(11 * ui), align: 'center' },
     { t: 'gap', h: Math.round(8 * ui) },
     { t: 'text', s: G.touchUI ? '[ TOCA PARA EMPEZAR ]' : '[ PULSA UNA TECLA PARA EMPEZAR ]', c: blink ? PAL.yellow : PAL.yellowDark, f: Math.round(13 * ui), align: 'center' }
   ];
