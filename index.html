@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#07050d">
-<title>Varado en Kepler-7</title>
+<title>Misión JVC-028 | Feliz Cumpleaños</title>
 <style>
   /* El canvas ocupa toda la pantalla; desactivamos gestos del navegador
      (scroll, zoom, selección) para que el juego reciba todos los toques. */
@@ -1252,7 +1252,9 @@ function updatePickups() {
       G.inventory.push({ kind: it.kind, amt: it.amt });
       SFX.pick();
       burst(it.x, it.y - 4, 10, [itemColor(it), PAL.text], 30, 0.5);
-      toast(`+${itemLabel(it)} → mochila: ${load} g`, itemColor(it), 1.8);
+      // El refrigerante se mide en volumen, pero la mochila en masa: aclaramos la equivalencia
+      if (it.kind === 'coolant') toast(`+${it.amt} ml de refrigerante (≈ ${it.amt} g) → mochila: ${load} g`, itemColor(it), 2.6);
+      else toast(`+${itemLabel(it)} → mochila: ${load} g`, itemColor(it), 1.8);
     } else {
       G.minerals++;
       SFX.pick();
@@ -1741,6 +1743,9 @@ function drawHUD() {
       else rows.push({ t: 'text', s: '(vacía)', c: PAL.metal, f: fsS });
       // Solo el peso actual: el límite (1 kg) se descubre al sobrecargarse
       rows.push({ t: 'text', s: `Carga: ${sum} g`, c: PAL.text, f: fsS });
+      // Aclaración volumen → masa (el refrigerante es casi agua: 1 ml ≈ 1 g)
+      const ml = G.inventory.filter(o => o.kind === 'coolant').reduce((a, o) => a + o.amt, 0);
+      if (ml) rows.push({ t: 'text', s: `Refrigerante: ${ml} ml ≈ ${ml} g`, c: PAL.coolant, f: fsS });
     } else {
       if (G.minerals) rows.push(iconRows(Array(G.minerals).fill(SPR.mineral), is).measure(inner));
       else rows.push({ t: 'text', s: '(vacía)', c: PAL.metal, f: fsS });
